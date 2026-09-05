@@ -36,7 +36,8 @@
     playing: false,
     lastFrame: null,
     previousBeat: 0,
-    audioContext: null
+    audioContext: null,
+    fallingCache: new WeakMap()
   };
 
   const naturalPitchClass = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -57,12 +58,23 @@
     return midi;
   }
 
+  function safePitchToMidi(pitch) {
+    try {
+      const midi = pitchToMidi(pitch);
+      return Number.isFinite(midi) ? midi : null;
+    } catch (error) {
+      console.warn('Skipping invalid pitch', pitch, error);
+      return null;
+    }
+  }
+
   function frequencyForPitch(pitch) {
     return 440 * Math.pow(2, (pitchToMidi(pitch) - 69) / 12);
   }
 
   function totalBeats(piece = state.piece) {
-    return Math.max(...piece.notes.map(note => note.start + note.duration));
+    const ends = piece?.notes?.map(note => Number(note.start) + Number(note.duration)).filter(Number.isFinite) || [];
+    return ends.length ? Math.max(...ends) : 0;
   }
 
   function secondsForBeats(beats, tempo = state.tempo) {
@@ -76,18 +88,42 @@
     return `${minutes}:${secs}`;
   }
 
+  function fallingData(piece = state.piece) {
+    if (!piece || !Array.isArray(piece.notes)) return { notes: [], minMidi: 48, maxMidi: 72 };
+    const cached = state.fallingCache.get(piece);
+    if (cached && cached.sourceLength === piece.notes.length) return cached;
+
+    const notes = piece.notes.map(note => {
+      const midi = safePitchToMidi(note.pitch);
+      const start = Number(note.start);
+      const duration = Number(note.duration);
+      if (!Number.isFinite(midi) || !Number.isFinite(start) || !Number.isFinite(duration) || duration <= 0) return null;
+      return { note, midi, start, duration };
+    }).filter(Boolean);
+
+    const midis = notes.map(item => item.midi);
+    const data = {
+      sourceLength: piece.notes.length,
+      notes,
+      minMidi: midis.length ? Math.min(...midis) : 48,
+      maxMidi: midis.length ? Math.max(...midis) : 72
+    };
+    state.fallingCache.set(piece, data);
+    return data;
+  }
+
   function setPiece(piece) {
     pause();
     state.piece = piece;
     state.beat = 0;
     state.previousBeat = 0;
-    state.tempo = piece.tempo;
-    els.tempo.value = piece.tempo;
-    els.tempoValue.textContent = `${piece.tempo} BPM`;
+    state.tempo = Number.isFinite(Number(piece.tempo)) ? Number(piece.tempo) : 90;
+    els.tempo.value = Math.max(Number(els.tempo.min) || 40, Math.min(Number(els.tempo.max) || 160, state.tempo));
+    els.tempoValue.textContent = `${Math.round(state.tempo)} BPM`;
     renderPieceInfo();
     renderScore();
     updateTransport();
-    drawFallingNotes();
+    if (state.view === 'falling') requestFallingRedraw();
   }
 
   function renderPieceInfo() {
@@ -250,9 +286,9 @@
   }
 
   function keyboardRange() {
-    const midis = state.piece.notes.map(note => pitchToMidi(note.pitch));
-    let min = Math.max(21, Math.min(...midis) - 4);
-    let max = Math.min(108, Math.max(...midis) + 4);
+    const { minMidi, maxMidi } = fallingData();
+    let min = Math.max(21, Math.floor(minMidi) - 4);
+    let max = Math.min(108, Math.ceil(maxMidi) + 4);
     while (min > 21 && min % 12 !== 0) min -= 1;
     while (max < 108 && max % 12 !== 0) max += 1;
     max = Math.min(108, max + 1);
@@ -263,17 +299,18 @@
     const [minMidi, maxMidi] = keyboardRange();
     const whiteMidis = [];
     for (let midi = minMidi; midi <= maxMidi; midi += 1) {
-      if (!blackPitchClasses.has(midi % 12)) whiteMidis.push(midi);
+      if (!blackPitchClasses.has(((midi % 12) + 12) % 12)) whiteMidis.push(midi);
     }
+    if (!whiteMidis.length) whiteMidis.push(60);
     const whiteWidth = width / whiteMidis.length;
     const keys = new Map();
     whiteMidis.forEach((midi, index) => {
       keys.set(midi, { midi, black: false, x: index * whiteWidth, width: whiteWidth });
     });
     for (let midi = minMidi; midi <= maxMidi; midi += 1) {
-      if (!blackPitchClasses.has(midi % 12)) continue;
+      if (!blackPitchClasses.has(((midi % 12) + 12) % 12)) continue;
       let previous = midi - 1;
-      while (previous >= minMidi && blackPitchClasses.has(previous % 12)) previous -= 1;
+      while (previous >= minMidi && blackPitchClasses.has(((previous % 12) + 12) % 12)) previous -= 1;
       const previousKey = keys.get(previous);
       if (!previousKey) continue;
       const blackWidth = whiteWidth * 0.62;
@@ -289,9 +326,10 @@
 
   function resizeCanvas() {
     const rect = els.canvas.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return null;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const nextWidth = Math.max(1, Math.floor(rect.width * dpr));
-    const nextHeight = Math.max(1, Math.floor(rect.height * dpr));
+    const nextWidth = Math.max(2, Math.floor(rect.width * dpr));
+    const nextHeight = Math.max(2, Math.floor(rect.height * dpr));
     if (els.canvas.width !== nextWidth || els.canvas.height !== nextHeight) {
       els.canvas.width = nextWidth;
       els.canvas.height = nextHeight;
@@ -300,8 +338,12 @@
   }
 
   function drawFallingNotes() {
-    const { width, height, dpr } = resizeCanvas();
+    if (state.view !== 'falling' || els.fallingPanel.classList.contains('is-hidden')) return;
+    const size = resizeCanvas();
+    if (!size) return;
+    const { width, height, dpr } = size;
     const ctx = els.canvas.getContext('2d');
+    if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = '#171715';
@@ -311,6 +353,7 @@
     const keyboardTop = height - keyboardHeight;
     const pixelsPerBeat = Math.max(55, Math.min(92, height * 0.13));
     const keyboard = buildKeyboard(width);
+    const data = fallingData();
 
     ctx.strokeStyle = 'rgba(255,255,255,.08)';
     ctx.lineWidth = 1;
@@ -322,16 +365,17 @@
       ctx.stroke();
     }
 
-    state.piece.notes.forEach(note => {
-      const midi = pitchToMidi(note.pitch);
-      const key = keyboard.keys.get(midi);
+    const lookAheadBeats = keyboardTop / pixelsPerBeat + 2;
+    data.notes.forEach(item => {
+      if (item.start + item.duration < state.beat - 0.25 || item.start > state.beat + lookAheadBeats) return;
+      const key = keyboard.keys.get(Math.round(item.midi));
       if (!key) return;
-      const bottom = keyboardTop - (note.start - state.beat) * pixelsPerBeat;
-      const blockHeight = Math.max(14, note.duration * pixelsPerBeat - 4);
+      const bottom = keyboardTop - (item.start - state.beat) * pixelsPerBeat;
+      const blockHeight = Math.max(14, item.duration * pixelsPerBeat - 4);
       const y = bottom - blockHeight;
       if (y > keyboardTop || bottom < -20) return;
 
-      ctx.fillStyle = note.hand === 'right' ? '#b9dff2' : '#e5bfa1';
+      ctx.fillStyle = item.note.hand === 'right' ? '#b9dff2' : '#e5bfa1';
       ctx.beginPath();
       const radius = Math.min(5, key.width * 0.18);
       if (ctx.roundRect) {
@@ -345,14 +389,15 @@
         ctx.fillStyle = 'rgba(20,20,18,.72)';
         ctx.font = '700 11px system-ui, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(parsePitch(note.pitch).letter, key.x + key.width / 2, Math.min(bottom - 8, y + 18));
+        const parsed = parsePitch(item.note.pitch);
+        ctx.fillText(`${parsed.letter}${parsed.accidental}`, key.x + key.width / 2, Math.min(bottom - 8, y + 18));
       }
     });
 
     const active = new Set(
-      state.piece.notes
-        .filter(note => state.beat >= note.start && state.beat < note.start + note.duration)
-        .map(note => pitchToMidi(note.pitch))
+      data.notes
+        .filter(item => state.beat >= item.start && state.beat < item.start + item.duration)
+        .map(item => Math.round(item.midi))
     );
 
     keyboard.whiteMidis.forEach(midi => {
@@ -392,6 +437,23 @@
     ctx.fillText('RIGHT HAND', 132, 24);
     ctx.fillStyle = '#b9dff2';
     ctx.fillRect(214, 15, 24, 10);
+
+    if (!data.notes.length) {
+      ctx.fillStyle = 'rgba(255,255,255,.8)';
+      ctx.font = '600 14px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('No playable notes available for falling-notes view', width / 2, height / 2);
+    }
+  }
+
+  let fallingRedrawQueued = false;
+  function requestFallingRedraw() {
+    if (fallingRedrawQueued) return;
+    fallingRedrawQueued = true;
+    requestAnimationFrame(() => {
+      fallingRedrawQueued = false;
+      drawFallingNotes();
+    });
   }
 
   function ensureAudioContext() {
@@ -452,7 +514,7 @@
     state.beat = 0;
     state.previousBeat = 0;
     updateTransport();
-    drawFallingNotes();
+    requestFallingRedraw();
   }
 
   function updatePlayButton() {
@@ -500,7 +562,8 @@
     els.scorePanel.classList.toggle('is-hidden', falling);
     els.fallingPanel.classList.toggle('is-hidden', !falling);
     if (falling) {
-      requestAnimationFrame(drawFallingNotes);
+      requestFallingRedraw();
+      requestAnimationFrame(() => requestFallingRedraw());
     } else {
       renderScore();
     }
@@ -531,7 +594,7 @@
     state.beat = beats * Number(event.target.value) / 1000;
     state.previousBeat = state.beat;
     updateTransport();
-    if (state.view === 'falling') drawFallingNotes();
+    requestFallingRedraw();
   });
 
   els.tempo.addEventListener('input', event => {
@@ -540,9 +603,11 @@
     updateTransport();
   });
 
-  window.addEventListener('resize', () => {
-    if (state.view === 'falling') drawFallingNotes();
-  });
+  window.addEventListener('resize', requestFallingRedraw);
+  if (typeof ResizeObserver !== 'undefined') {
+    const resizeObserver = new ResizeObserver(() => requestFallingRedraw());
+    resizeObserver.observe(els.fallingPanel);
+  }
 
   els.pieceSelect.value = state.piece.id;
   renderPieceInfo();
@@ -550,4 +615,10 @@
   updateTransport();
   updatePlayButton();
   requestAnimationFrame(frame);
+
+  window.PianoApp = {
+    redrawFalling: requestFallingRedraw,
+    setPiece,
+    getState: () => ({ piece: state.piece, view: state.view, beat: state.beat, tempo: state.tempo })
+  };
 })();
