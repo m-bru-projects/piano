@@ -39,11 +39,7 @@
     audioContext: null
   };
 
-  const pitchClass = {
-    C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4,
-    F: 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8,
-    A: 9, 'A#': 10, Bb: 10, B: 11
-  };
+  const naturalPitchClass = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
   const letterIndex = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
   const blackPitchClasses = new Set([1, 3, 6, 8, 10]);
 
@@ -55,7 +51,10 @@
 
   function pitchToMidi(pitch) {
     const { letter, accidental, octave } = parsePitch(pitch);
-    return (octave + 1) * 12 + pitchClass[letter + accidental];
+    const accidentalOffset = accidental === '#' ? 1 : accidental === 'b' ? -1 : 0;
+    const midi = (octave + 1) * 12 + naturalPitchClass[letter] + accidentalOffset;
+    if (!Number.isFinite(midi)) throw new Error(`Invalid MIDI pitch: ${pitch}`);
+    return midi;
   }
 
   function frequencyForPitch(pitch) {
@@ -408,10 +407,15 @@
     const audio = ensureAudioContext();
     const now = audio.currentTime;
     const duration = Math.max(0.08, secondsForBeats(note.duration) * 0.88);
+    const frequency = frequencyForPitch(note.pitch);
+    if (!Number.isFinite(frequency) || frequency <= 0) {
+      console.warn('Skipping invalid audio pitch', note.pitch);
+      return;
+    }
     const oscillator = audio.createOscillator();
     const gain = audio.createGain();
     oscillator.type = 'triangle';
-    oscillator.frequency.value = frequencyForPitch(note.pitch);
+    oscillator.frequency.value = frequency;
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(note.hand === 'right' ? 0.12 : 0.09, now + 0.018);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
