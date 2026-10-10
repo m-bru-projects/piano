@@ -102,8 +102,8 @@
     const handDirection = hand === 'right' ? direction : -direction;
     let finger = previousFinger + handDirection * step;
 
-    if (finger > 5) finger = hand === 'right' ? (direction > 0 ? 1 : 5) : (direction < 0 ? 1 : 5);
-    if (finger < 1) finger = hand === 'right' ? (direction < 0 ? 5 : 1) : (direction > 0 ? 5 : 1);
+    if (finger > 5) finger = hand === 'right' ? (direction > 0 ? 1 : 5) : direction < 0 ? 1 : 5;
+    if (finger < 1) finger = hand === 'right' ? (direction < 0 ? 5 : 1) : direction > 0 ? 5 : 1;
 
     return Math.max(1, Math.min(5, finger));
   }
@@ -135,8 +135,9 @@
       if (Number.isFinite(previousMidi) && Number.isFinite(previousFinger)) {
         finger = nextFingerFromPrevious(hand, previousMidi, previousFinger, item.midi);
       } else {
-        const nextSingle = groups.slice(groupIndex + 1)
-          .map(nextGroup => nextGroup.items.length === 1 ? nextGroup.items[0] : null)
+        const nextSingle = groups
+          .slice(groupIndex + 1)
+          .map(nextGroup => (nextGroup.items.length === 1 ? nextGroup.items[0] : null))
           .find(Boolean);
         finger = firstFingerForDirection(hand, item.midi, nextSingle?.midi);
       }
@@ -164,7 +165,11 @@
 
     piece.__autoFingeringComplete = true;
     piece.__generatedFingerCount = generated;
-    if (generated > 0 && typeof piece.description === 'string' && !piece.description.includes('fingering generated')) {
+    if (
+      generated > 0 &&
+      typeof piece.description === 'string' &&
+      !piece.description.includes('fingering generated')
+    ) {
       piece.description += ` · ${generated} fingering${generated === 1 ? '' : 's'} generated`;
     }
     return generated;

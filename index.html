@@ -1,90 +1,113 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Functional piano score and falling-notes prototype" />
-  <title>Piano Library</title>
-  <link rel="stylesheet" href="./styles.css" />
-</head>
-<body>
-  <div class="app-shell">
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true">♩</div>
-        <div>
-          <p class="eyebrow">Piano</p>
-          <h1>Practice library</h1>
-        </div>
-      </div>
-      <div class="piece-picker">
-        <label for="pieceSelect">Piece</label>
-        <select id="pieceSelect"></select>
-      </div>
-    </header>
-
-    <main>
-      <section class="piece-summary" aria-live="polite">
-        <div>
-          <p class="eyebrow" id="pieceComposer"></p>
-          <h2 id="pieceTitle"></h2>
-          <p class="piece-description" id="pieceDescription"></p>
-        </div>
-        <div class="meta-row" id="pieceMeta"></div>
-      </section>
-
-      <section class="workspace">
-        <div class="view-tabs" role="tablist" aria-label="Learning view">
-          <button class="view-tab is-active" data-view="score" role="tab" aria-selected="true">Score</button>
-          <button class="view-tab" data-view="letters" role="tab" aria-selected="false">Score + letters</button>
-          <button class="view-tab" data-view="fingering" role="tab" aria-selected="false">Score + fingering</button>
-          <button class="view-tab" data-view="falling" role="tab" aria-selected="false">Falling notes</button>
-        </div>
-
-        <div class="view-panel" id="scorePanel">
-          <div class="score-scroll">
-            <svg id="scoreSvg" role="img" aria-label="Piano score"></svg>
-          </div>
-          <p class="render-note">Prototype notation renderer — both hands share the same underlying note data as the falling-notes view.</p>
-        </div>
-
-        <div class="view-panel is-hidden" id="fallingPanel">
-          <div class="falling-wrap">
-            <canvas id="fallingCanvas" aria-label="Falling piano notes"></canvas>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Functional piano score and falling-notes prototype" />
+    <title>Piano Library</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">♩</div>
+          <div>
+            <p class="eyebrow">Piano</p>
+            <h1>Practice library</h1>
           </div>
         </div>
-      </section>
-    </main>
+        <div class="piece-picker">
+          <label for="pieceSelect">Piece</label>
+          <select id="pieceSelect">
+            <optgroup id="demoPieces" label="Demos"></optgroup>
+            <optgroup id="libraryPieces" label="Library"></optgroup>
+            <optgroup id="importedPieces" label="Your imports"></optgroup>
+          </select>
+        </div>
+      </header>
 
-    <footer class="transport" aria-label="Playback controls">
-      <button id="playButton" class="primary-button" type="button">
-        <span id="playIcon" aria-hidden="true">▶</span>
-        <span id="playLabel">Play</span>
-      </button>
-      <button id="restartButton" class="icon-button" type="button" aria-label="Restart">↺</button>
+      <main>
+        <section class="piece-summary" aria-live="polite">
+          <div>
+            <p class="eyebrow" id="pieceComposer"></p>
+            <h2 id="pieceTitle"></h2>
+            <p class="piece-description" id="pieceDescription"></p>
+          </div>
+          <div class="meta-row" id="pieceMeta"></div>
+        </section>
 
-      <div class="progress-wrap">
-        <span id="currentTime">0:00</span>
-        <input id="progress" type="range" min="0" max="1000" value="0" aria-label="Playback position" />
-        <span id="totalTime">0:00</span>
-      </div>
+        <section class="workspace">
+          <div class="view-tabs" role="tablist" aria-label="Learning view">
+            <button class="view-tab is-active" data-view="score" role="tab" aria-selected="true">
+              Score
+            </button>
+            <button class="view-tab" data-view="letters" role="tab" aria-selected="false">
+              Score + letters
+            </button>
+            <button class="view-tab" data-view="fingering" role="tab" aria-selected="false">
+              Score + fingering
+            </button>
+            <button class="view-tab" data-view="falling" role="tab" aria-selected="false">
+              Falling notes
+            </button>
+          </div>
 
-      <div class="tempo-control">
-        <label for="tempo">Tempo</label>
-        <input id="tempo" type="range" min="40" max="160" step="1" value="90" />
-        <span id="tempoValue">90 BPM</span>
-      </div>
+          <div class="view-panel" id="scorePanel">
+            <div class="score-scroll">
+              <svg id="scoreSvg" role="img" aria-label="Piano score"></svg>
+            </div>
+            <p class="render-note">
+              Prototype notation renderer — both hands share the same underlying note data as the
+              falling-notes view.
+            </p>
+          </div>
 
-      <label class="sound-toggle">
-        <input id="soundToggle" type="checkbox" checked />
-        <span>Sound</span>
-      </label>
-    </footer>
-  </div>
+          <div class="view-panel is-hidden" id="fallingPanel">
+            <div class="falling-wrap">
+              <canvas id="fallingCanvas" aria-label="Falling piano notes"></canvas>
+            </div>
+          </div>
+        </section>
+      </main>
 
-  <script src="./data.js"></script>
-  <script src="./app.js"></script>
-  <script src="./piano-enhancements.js"></script>
-  <script src="./musicxml-import.js"></script>
-</body>
+      <footer class="transport" aria-label="Playback controls">
+        <button id="playButton" class="primary-button" type="button" title="Play or pause (Space)">
+          <span id="playIcon" aria-hidden="true">▶</span>
+          <span id="playLabel">Play</span>
+        </button>
+        <button id="restartButton" class="icon-button" type="button" aria-label="Restart">↺</button>
+
+        <div class="progress-wrap">
+          <span id="currentTime">0:00</span>
+          <input
+            id="progress"
+            type="range"
+            min="0"
+            max="1000"
+            value="0"
+            aria-label="Playback position"
+          />
+          <span id="totalTime">0:00</span>
+        </div>
+
+        <div class="tempo-control">
+          <label for="tempo">Tempo</label>
+          <input id="tempo" type="range" min="30" max="240" step="1" value="90" />
+          <span id="tempoValue">90 BPM</span>
+        </div>
+
+        <label class="sound-toggle">
+          <input id="soundToggle" type="checkbox" checked />
+          <span>Sound</span>
+        </label>
+      </footer>
+    </div>
+
+    <script src="./data.js"></script>
+    <script src="./app.js"></script>
+    <script src="./piano-enhancements.js"></script>
+    <script src="./musicxml-import.js"></script>
+    <script src="./library.js"></script>
+  </body>
 </html>
