@@ -99,16 +99,35 @@
           <span id="tempoValue">90 BPM</span>
         </div>
 
-        <label class="sound-toggle">
-          <input id="soundToggle" type="checkbox" checked />
-          <span>Sound</span>
-        </label>
+        <div class="sound-controls">
+          <label class="sound-field">
+            Tone
+            <select id="toneSelect" aria-label="Tone">
+              <option value="piano" selected>Piano</option>
+              <option value="synth">Synth</option>
+            </select>
+          </label>
+          <div class="volume-control">
+            <label for="volume">Volume</label>
+            <input id="volume" type="range" min="0" max="100" step="1" value="80" />
+          </div>
+          <label class="sound-toggle">
+            <input id="reverbToggle" type="checkbox" checked />
+            <span>Reverb</span>
+          </label>
+          <label class="sound-toggle">
+            <input id="soundToggle" type="checkbox" checked />
+            <span>Sound</span>
+          </label>
+          <span id="soundStatus" class="sound-status" aria-live="polite"></span>
+        </div>
       </footer>
     </div>
 
     <script src="./vendor/opensheetmusicdisplay.min.js"></script>
     <script src="./data.js"></script>
     <script src="./musicxml-export.js"></script>
+    <script src="./piano-samples.js"></script>
     <script src="./app.js"></script>
     <script src="./piano-enhancements.js"></script>
     <script src="./musicxml-import.js"></script>
