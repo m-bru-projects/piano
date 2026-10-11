@@ -23,6 +23,7 @@ Pushes to `main` publish this same folder, including `library/`, with GitHub Act
 - Play / pause / restart
 - Scrubbable playback position
 - Tempo from 30 to 240 BPM
+- Sampled piano or the built-in synth, with volume and a light reverb
 - Web Audio playback scheduled from `audioContext.currentTime`
 - Keyboard shortcuts: Space plays or pauses, Left and Right arrow step a bar
 - Piece selector with demos, the standard library, and your imports
@@ -36,6 +37,8 @@ The timeline is in quarter notes. A 6/8 bar is three quarters long, a pickup bar
 The score view is [OpenSheetMusicDisplay](https://github.com/opensheetmusicdisplay/opensheetmusicdisplay) 2.2.0, vendored at `vendor/opensheetmusicdisplay.min.js` under the BSD-3-Clause license (`vendor/OSMD-LICENSE.txt`). The script is a browser bundle, so the page still has no build step. Library pieces and local imports are drawn from their original MusicXML. The two built-in demos are turned into MusicXML by `musicxml-export.js` and then engraved the same way. Note names are labels placed on the engraved noteheads. Fingerings that are already in the MusicXML are drawn by OpenSheetMusicDisplay; fingerings filled in by this app use a dashed circle. A highlight follows the audio clock, including while you scrub. Falling notes stay on the shared note model and are not redrawn from the engraved page.
 
 Notes are scheduled on the audio clock with a short lookahead, so timing does not depend on `requestAnimationFrame` and playback can keep going when the tab is in the background. Pausing or scrubbing in the middle of a note sounds the remainder of that note when playback continues. The score is not redrawn while playback is paused; only the highlight moves.
+
+**Piano** plays a sampled acoustic piano. The samples are a CC0 subset of the Versilian Studios VSCO 2 Community Edition piano (every minor third from C1 to C8, one velocity layer, mono MP3, about 1.3 MB). Paths are relative (`samples/piano/`), so the same files load on GitHub Pages under `/piano/`. The first time you play in Piano mode the page fetches them. Until that finishes, or if a fetch or decode fails, playback uses the triangle synth and the transport shows **Synth fallback**. Choosing Piano again retries the download. Each note pitch-shifts the nearest sample with `playbackRate`. Key release, pause and scrub fade the damper; low notes ring a little longer. A note may carry `velocity` from 0 to 1 or from 1 to 127; notes without one play at a moderate dynamic. Chords run through a light compressor. **Reverb** is a short synthesized room, optional, and **Volume** scales the master output. **Synth** keeps the original triangle oscillator. Details and attribution are in `samples/piano/LICENSE.txt`.
 
 ## Automatic fingering
 
@@ -96,6 +99,7 @@ Every view reads the same notes from `data.js`, a library score, or a MusicXML i
 - `styles.css` — layout and responsive styling
 - `data.js` — shared music data and demo pieces
 - `app.js` — OpenSheetMusicDisplay score, falling-notes renderer, transport and audio
+- `piano-samples.js` — nearest-sample mapping, playback rate and velocity gain
 - `musicxml-export.js` — writes MusicXML for the built-in demos
 - `piano-enhancements.js` — automatic fingering
 - `musicxml-import.js` — local MusicXML/MXL parser, IndexedDB and import UI
@@ -103,6 +107,7 @@ Every view reads the same notes from `data.js`, a library score, or a MusicXML i
 - `library/` — standard-library manifest and MusicXML scores
 - `vendor/` — OpenSheetMusicDisplay 2.2.0 and its license
 - `samples/import-test.musicxml` — small import test score
+- `samples/piano/` — CC0 VSCO 2 piano samples (see `samples/piano/LICENSE.txt`)
 - `tests/` — Vitest tests for the importer, exporter, ZIP reader, pitch parsing and library
 
 ## Tests and lint

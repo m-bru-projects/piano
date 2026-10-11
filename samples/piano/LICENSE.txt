@@ -1,0 +1,23 @@
+Piano samples
+==============
+
+These files are a compact subset of the piano from the Versilian Studios
+VSCO 2 Community Edition (also called VSO2).
+
+Source: Versilian Studios, VSCO 2 Community Edition
+License: CC0 1.0 Universal (public domain)
+https://creativecommons.org/publicdomain/zero/1.0/
+Publisher note: https://versilian-studios.com/vsco-community/
+
+The MP3s used as the starting point were the piano files published with
+https://github.com/nbrosowsky/tonejs-instruments
+whose sample-source-info.txt attributes the piano to "VSO2".
+
+This repository keeps every minor third from C1 through C8 (29 notes, one
+velocity layer). Each file was trimmed and re-encoded to mono 44.1 kHz
+MP3 at 96 kbps so the set stays small enough to lazy-load on the web.
+CC0 does not require credit; the attribution above is recorded so the
+source stays obvious.
+
+No other sample library is included. In particular, the Salamander Grand
+Piano is not part of this folder.

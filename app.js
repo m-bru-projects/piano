@@ -28,7 +28,11 @@
     totalTime: document.getElementById('totalTime'),
     tempo: document.getElementById('tempo'),
     tempoValue: document.getElementById('tempoValue'),
-    soundToggle: document.getElementById('soundToggle')
+    toneSelect: document.getElementById('toneSelect'),
+    volume: document.getElementById('volume'),
+    reverbToggle: document.getElementById('reverbToggle'),
+    soundToggle: document.getElementById('soundToggle'),
+    soundStatus: document.getElementById('soundStatus')
   };
 
   const state = {
@@ -732,6 +736,204 @@
     });
   }
 
+  const piano = {
+    status: 'idle',
+    buffers: new Map(),
+    master: null,
+    wet: null,
+    loadPromise: null
+  };
+
+  function toneMode() {
+    return els.toneSelect?.value === 'synth' ? 'synth' : 'piano';
+  }
+
+  function volumeLevel() {
+    const raw = Number(els.volume?.value);
+    if (!Number.isFinite(raw)) return 0.8;
+    return Math.max(0, Math.min(1, raw / 100));
+  }
+
+  function reverbEnabled() {
+    return Boolean(els.reverbToggle?.checked);
+  }
+
+  function updateSoundStatus() {
+    if (!els.soundStatus) return;
+    if (toneMode() !== 'piano') {
+      els.soundStatus.textContent = '';
+      return;
+    }
+    if (piano.status === 'loading') els.soundStatus.textContent = 'Loading piano…';
+    else if (piano.status === 'failed') els.soundStatus.textContent = 'Synth fallback';
+    else els.soundStatus.textContent = '';
+  }
+
+  function rampParam(param, value, when, seconds) {
+    const level = Math.max(0, value);
+    if (!param.setValueAtTime || !param.linearRampToValueAtTime) {
+      param.value = level;
+      return;
+    }
+    const now = Math.max(when, 0);
+    param.cancelScheduledValues?.(now);
+    param.setValueAtTime(param.value, now);
+    param.linearRampToValueAtTime(level, now + seconds);
+  }
+
+  function makeImpulse(audio) {
+    if (typeof audio.createBuffer !== 'function') return null;
+    const rate = audio.sampleRate || 44100;
+    const length = Math.floor(rate * 1.1);
+    const buffer = audio.createBuffer(2, length, rate);
+    if (!buffer || typeof buffer.getChannelData !== 'function') return null;
+    for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+      const data = buffer.getChannelData(channel);
+      for (let index = 0; index < data.length; index += 1) {
+        const decay = (1 - index / data.length) ** 2.6;
+        data[index] = (Math.random() * 2 - 1) * decay * 0.35;
+      }
+    }
+    return buffer;
+  }
+
+  function ensureOutput(audio) {
+    if (piano.master) return piano.master;
+    const master = audio.createGain();
+    master.gain.value = volumeLevel();
+    let tail = master;
+    const compressor =
+      typeof audio.createDynamicsCompressor === 'function'
+        ? audio.createDynamicsCompressor()
+        : null;
+    if (compressor?.threshold && compressor.knee && compressor.ratio) {
+      compressor.threshold.value = -16;
+      compressor.knee.value = 12;
+      compressor.ratio.value = 4;
+      if (compressor.attack) compressor.attack.value = 0.004;
+      if (compressor.release) compressor.release.value = 0.22;
+      tail.connect(compressor);
+      tail = compressor;
+    }
+    tail.connect(audio.destination);
+    if (typeof audio.createConvolver === 'function') {
+      const impulse = makeImpulse(audio);
+      if (impulse) {
+        const wet = audio.createGain();
+        wet.gain.value = reverbEnabled() ? 0.16 : 0;
+        const convolver = audio.createConvolver();
+        convolver.buffer = impulse;
+        tail.connect(wet);
+        wet.connect(convolver);
+        convolver.connect(audio.destination);
+        piano.wet = wet;
+      }
+    }
+    piano.master = master;
+    return master;
+  }
+
+  function outputNode(audio) {
+    try {
+      return ensureOutput(audio);
+    } catch (error) {
+      console.warn('Could not build the audio output', error);
+      return audio.destination;
+    }
+  }
+
+  function applyVolume() {
+    if (!piano.master) return;
+    const now = state.audioContext ? state.audioContext.currentTime : 0;
+    rampParam(piano.master.gain, volumeLevel(), now, 0.03);
+  }
+
+  function applyReverb() {
+    if (!piano.wet) return;
+    const now = state.audioContext ? state.audioContext.currentTime : 0;
+    rampParam(piano.wet.gain, reverbEnabled() ? 0.16 : 0, now, 0.05);
+  }
+
+  function decodeAudioData(audio, bytes) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (error, buffer) => {
+        if (settled) return;
+        settled = true;
+        if (error) reject(error);
+        else resolve(buffer);
+      };
+      try {
+        const pending = audio.decodeAudioData(
+          bytes.slice(0),
+          buffer => finish(null, buffer),
+          error => finish(error || new Error('Could not decode a piano sample'))
+        );
+        if (pending && typeof pending.then === 'function')
+          pending.then(
+            buffer => finish(null, buffer),
+            error => finish(error)
+          );
+      } catch (error) {
+        finish(error);
+      }
+    });
+  }
+
+  function sampleRequestUrl(name) {
+    const relative = window.PianoSamples.sampleUrl(name);
+    return new URL(relative, document.baseURI).href;
+  }
+
+  async function loadSample(audio, name) {
+    const response = await fetch(sampleRequestUrl(name));
+    if (!response.ok) throw new Error(`Piano sample failed to load (${response.status})`);
+    const bytes = await response.arrayBuffer();
+    const buffer = await decodeAudioData(audio, bytes);
+    piano.buffers.set(name, buffer);
+  }
+
+  function ensureSamples() {
+    if (piano.status === 'ready' || piano.status === 'loading') return piano.loadPromise;
+    if (piano.status === 'failed') return Promise.resolve();
+    const audio = state.audioContext;
+    if (
+      !window.PianoSamples ||
+      !audio ||
+      typeof audio.decodeAudioData !== 'function' ||
+      typeof fetch !== 'function'
+    ) {
+      piano.status = 'failed';
+      updateSoundStatus();
+      return Promise.resolve();
+    }
+    piano.status = 'loading';
+    updateSoundStatus();
+    const names = window.PianoSamples.SAMPLE_MIDIS.map(midi =>
+      window.PianoSamples.sampleName(midi)
+    );
+    piano.loadPromise = Promise.all(names.map(name => loadSample(audio, name)))
+      .then(() => {
+        piano.status = 'ready';
+        updateSoundStatus();
+      })
+      .catch(error => {
+        console.warn('Piano samples failed to load', error);
+        piano.buffers.clear();
+        piano.status = 'failed';
+        updateSoundStatus();
+      });
+    return piano.loadPromise;
+  }
+
+  function retrySamples() {
+    piano.status = 'idle';
+    piano.buffers.clear();
+    piano.loadPromise = null;
+    if (state.audioContext) ensureSamples();
+    else updateSoundStatus();
+  }
+
   function ensureAudioContext() {
     if (!state.audioContext) {
       state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -740,15 +942,20 @@
     return state.audioContext;
   }
 
+  function stopVoice(item, now) {
+    const release = item.source ? 0.42 : 0.04;
+    item.gain.gain.cancelScheduledValues(now);
+    item.gain.gain.setValueAtTime(Math.max(item.gain.gain.value, 0.0001), now);
+    item.gain.gain.exponentialRampToValueAtTime(0.0001, now + release);
+    (item.source || item.oscillator).stop(now + release + 0.02);
+  }
+
   function stopSounding() {
     const audio = state.audioContext;
     const now = audio ? audio.currentTime : 0;
     state.scheduled.forEach(item => {
       try {
-        item.gain.gain.cancelScheduledValues(now);
-        item.gain.gain.setValueAtTime(Math.max(item.gain.gain.value, 0.0001), now);
-        item.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
-        item.oscillator.stop(now + 0.04);
+        stopVoice(item, now);
       } catch (error) {
         console.warn('Could not stop a scheduled note', error);
       }
@@ -756,31 +963,81 @@
     state.scheduled = [];
   }
 
-  function scheduleTone(note, when, durationBeats = note.duration) {
-    if (!els.soundToggle.checked || !(durationBeats > 0.02)) return;
-    const audio = ensureAudioContext();
-    const startAt = Math.max(when, audio.currentTime);
-    const duration = Math.max(0.08, secondsForBeats(durationBeats) * 0.88);
-    let frequency = 0;
-    try {
-      frequency = frequencyForPitch(note.pitch);
-    } catch (error) {
-      console.warn('Skipping invalid audio pitch', note.pitch, error);
-      return;
-    }
-    if (!Number.isFinite(frequency) || frequency <= 0) return;
+  function damperRelease(midi) {
+    const span = Math.max(0, Math.min(1, (midi - 21) / (108 - 21)));
+    return 0.7 - span * 0.42;
+  }
+
+  function scheduleSynth(note, frequency, startAt, duration, audio) {
     const oscillator = audio.createOscillator();
     const gain = audio.createGain();
     oscillator.type = 'triangle';
     oscillator.frequency.value = frequency;
+    const peak = note.hand === 'right' ? 0.12 : 0.09;
+    gain.gain.value = 0.0001;
     gain.gain.setValueAtTime(0.0001, startAt);
-    gain.gain.exponentialRampToValueAtTime(note.hand === 'right' ? 0.12 : 0.09, startAt + 0.018);
+    gain.gain.exponentialRampToValueAtTime(peak, startAt + 0.018);
     gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
     oscillator.connect(gain);
-    gain.connect(audio.destination);
+    gain.connect(outputNode(audio));
     oscillator.start(startAt);
     oscillator.stop(startAt + duration + 0.03);
     state.scheduled.push({ oscillator, gain, when: startAt });
+  }
+
+  function scheduleSample(note, midi, startAt, duration, audio) {
+    const mapped = window.PianoSamples.nearestSample(midi);
+    const buffer = mapped && piano.buffers.get(mapped.name);
+    if (!buffer || typeof audio.createBufferSource !== 'function') return false;
+    const velocity = window.PianoSamples.velocityGain(note);
+    const peak = 0.28 * velocity * (note.hand === 'left' ? 0.92 : 1);
+    if (!(peak > 0.0001)) return true;
+    const source = audio.createBufferSource();
+    const gain = audio.createGain();
+    source.buffer = buffer;
+    const rate = mapped.playbackRate;
+    if (source.playbackRate?.setValueAtTime) source.playbackRate.setValueAtTime(rate, startAt);
+    else source.playbackRate.value = rate;
+    gain.gain.value = 0.0001;
+    const attack = 0.01;
+    const sustainAt = Math.max(attack + 0.01, duration);
+    const release = damperRelease(midi);
+    const held = Math.max(peak * 0.55, 0.0001);
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(peak, startAt + attack);
+    gain.gain.exponentialRampToValueAtTime(held, startAt + sustainAt);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + sustainAt + release);
+    source.connect(gain);
+    gain.connect(outputNode(audio));
+    source.start(startAt);
+    source.stop(startAt + sustainAt + release + 0.02);
+    state.scheduled.push({ source, gain, release, when: startAt });
+    return true;
+  }
+
+  function scheduleTone(note, when, durationBeats = note.duration) {
+    if (!els.soundToggle.checked || !(durationBeats > 0.02)) return;
+    const audio = ensureAudioContext();
+    const startAt = Math.max(when, audio.currentTime);
+    let midi = null;
+    try {
+      midi = pitchToMidi(note.pitch);
+    } catch (error) {
+      console.warn('Skipping invalid audio pitch', note.pitch, error);
+      return;
+    }
+    if (!Number.isFinite(midi)) return;
+    if (toneMode() === 'piano' && piano.status === 'idle') ensureSamples();
+    if (toneMode() === 'piano' && piano.status === 'ready') {
+      const duration = Math.max(0.08, secondsForBeats(durationBeats));
+      try {
+        if (scheduleSample(note, midi, startAt, duration, audio)) return;
+      } catch (error) {
+        console.warn('Falling back to the synth for', note.pitch, error);
+      }
+    }
+    const duration = Math.max(0.08, secondsForBeats(durationBeats) * 0.88);
+    scheduleSynth(note, frequencyForPitch(note.pitch), startAt, duration, audio);
   }
 
   function beatNow() {
@@ -1002,6 +1259,20 @@
     }
     if (state.playing) armScheduler(beatNow());
   });
+
+  els.toneSelect?.addEventListener('change', () => {
+    if (toneMode() === 'piano' && piano.status === 'failed') retrySamples();
+    updateSoundStatus();
+    if (!state.playing) return;
+    const beat = beatNow();
+    state.beat = beat;
+    stopSounding();
+    anchorClock(beat);
+    armScheduler(beat);
+  });
+
+  els.volume?.addEventListener('input', applyVolume);
+  els.reverbToggle?.addEventListener('change', applyReverb);
 
   window.addEventListener('keydown', event => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
