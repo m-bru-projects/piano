@@ -12,6 +12,8 @@ python3 -m http.server 8080
 
 Then open `http://localhost:8080`.
 
+Pushes to `main` publish this same folder, including `library/`, with GitHub Actions (`.github/workflows/pages.yml`). Pages serves it over HTTP, so the piece menu can load the manifest.
+
 ## Current functionality
 
 - Engraved grand staff (beams, rests, flags, dots, clefs, key and time signatures) via OpenSheetMusicDisplay
