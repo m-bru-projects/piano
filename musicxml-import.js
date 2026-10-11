@@ -415,7 +415,8 @@
       tempo: Math.min(240, Math.max(30, readTempo(doc))),
       level: 'Imported',
       description: `Imported from ${filename} · ${notes.length} notes${fingerCount ? ` · ${fingerCount} fingerings` : ''}`,
-      notes
+      notes,
+      musicXml: xmlText
     };
   }
 

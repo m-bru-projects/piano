@@ -14,7 +14,7 @@ const testGlobals = {
 
 export default [
   {
-    ignores: ['node_modules/**', 'library/scores/**', 'samples/**']
+    ignores: ['node_modules/**', 'library/scores/**', 'samples/**', 'vendor/**']
   },
   {
     files: ['*.js'],
@@ -23,7 +23,8 @@ export default [
       sourceType: 'script',
       globals: {
         ...globals.browser,
-        DecompressionStream: 'readonly'
+        DecompressionStream: 'readonly',
+        notesToMusicXml: 'readonly'
       }
     },
     rules: {

@@ -2,7 +2,7 @@
   const pieces = window.PIANO_PIECES;
   const pieceSelect = document.getElementById('pieceSelect');
   const scoreSvg = document.getElementById('scoreSvg');
-  if (!Array.isArray(pieces) || !pieceSelect || !scoreSvg) return;
+  if (!Array.isArray(pieces) || !pieceSelect) return;
 
   const naturalPitchClass = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 
@@ -184,6 +184,7 @@
   }
 
   function layoutChordLabels() {
+    if (!scoreSvg) return;
     const activeView = document.querySelector('.view-tab.is-active')?.dataset.view;
     if (activeView !== 'letters' && activeView !== 'fingering') return;
 
@@ -270,8 +271,10 @@
     }
   });
 
-  const observer = new MutationObserver(queueLayout);
-  observer.observe(scoreSvg, { childList: true, subtree: true });
+  if (scoreSvg) {
+    const observer = new MutationObserver(queueLayout);
+    observer.observe(scoreSvg, { childList: true, subtree: true });
+  }
   document.querySelectorAll('.view-tab').forEach(tab => tab.addEventListener('click', queueLayout));
   pieceSelect.addEventListener('change', queueLayout);
 

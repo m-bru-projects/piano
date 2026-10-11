@@ -12,7 +12,9 @@
     pieceTitle: document.getElementById('pieceTitle'),
     pieceDescription: document.getElementById('pieceDescription'),
     pieceMeta: document.getElementById('pieceMeta'),
-    scoreSvg: document.getElementById('scoreSvg'),
+    osmdContainer: document.getElementById('osmdContainer'),
+    scoreLabels: document.getElementById('scoreLabels'),
+    renderNote: document.getElementById('renderNote'),
     scorePanel: document.getElementById('scorePanel'),
     fallingPanel: document.getElementById('fallingPanel'),
     canvas: document.getElementById('fallingCanvas'),
@@ -41,7 +43,12 @@
     audioAnchor: 0,
     noteCursor: 0,
     scheduled: [],
-    schedulerId: null
+    schedulerId: null,
+    osmd: null,
+    cursorBeats: [],
+    cursorIndex: 0,
+    scoreLabels: [],
+    renderToken: 0
   };
 
   const TEMPO_MIN = 30;
@@ -50,7 +57,6 @@
   const BACKGROUND_SCHEDULE_AHEAD = 3;
 
   const naturalPitchClass = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
-  const letterIndex = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
   const blackPitchClasses = new Set([1, 3, 6, 8, 10]);
 
   function parsePitch(pitch) {
@@ -266,272 +272,271 @@
     });
   }
 
-  function svgEl(name, attrs = {}, text = '') {
-    const node = document.createElementNS('http://www.w3.org/2000/svg', name);
-    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
-    if (text) node.textContent = text;
-    return node;
-  }
-
-  function diatonicIndex(pitch) {
-    const { letter, octave } = parsePitch(pitch);
-    return octave * 7 + letterIndex[letter];
-  }
-
-  function noteY(note, hand, staff) {
-    const referencePitch = hand === 'right' ? 'E4' : 'G2';
-    const steps = diatonicIndex(note.pitch) - diatonicIndex(referencePitch);
-    return staff.bottom - steps * (staff.gap / 2);
-  }
-
-  function addLedgerLines(svg, x, y, staff) {
-    const halfGap = staff.gap / 2;
-    if (y < staff.top - halfGap) {
-      for (let ly = staff.top - staff.gap; ly >= y - 1; ly -= staff.gap) {
-        svg.appendChild(
-          svgEl('line', {
-            x1: x - 11,
-            y1: ly,
-            x2: x + 11,
-            y2: ly,
-            stroke: '#77736b',
-            'stroke-width': 1
-          })
-        );
-      }
+  function ensureMusicXml(piece) {
+    if (!piece) return '';
+    if (typeof piece.musicXml === 'string' && piece.musicXml.includes('<score-partwise')) {
+      return piece.musicXml;
     }
-    if (y > staff.bottom + halfGap) {
-      for (let ly = staff.bottom + staff.gap; ly <= y + 1; ly += staff.gap) {
-        svg.appendChild(
-          svgEl('line', {
-            x1: x - 11,
-            y1: ly,
-            x2: x + 11,
-            y2: ly,
-            stroke: '#77736b',
-            'stroke-width': 1
-          })
-        );
-      }
-    }
+    if (typeof notesToMusicXml !== 'function') return '';
+    piece.musicXml = notesToMusicXml(piece);
+    return piece.musicXml;
   }
 
-  function renderScore() {
-    const piece = state.piece;
-    const bars = pieceBars(piece);
-    const beats = bars.length ? bars[bars.length - 1].end : totalBeats(piece);
-    const pxPerBeat = 54;
-    const left = 112;
-    const rightPad = 70;
-    const width = Math.max(1180, left + beats * pxPerBeat + rightPad);
-    const height = 420;
-    const treble = { top: 96, bottom: 144, gap: 12 };
-    const bass = { top: 248, bottom: 296, gap: 12 };
-
-    const svg = els.scoreSvg;
-    svg.innerHTML = '';
-    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    svg.setAttribute('width', width);
-    svg.setAttribute('height', height);
-
-    svg.appendChild(
-      svgEl(
-        'text',
-        { x: 28, y: 122, 'font-size': 12, fill: '#77736b', 'font-weight': 700 },
-        'RIGHT'
-      )
-    );
-    svg.appendChild(
-      svgEl('text', { x: 34, y: 274, 'font-size': 12, fill: '#77736b', 'font-weight': 700 }, 'LEFT')
-    );
-    svg.appendChild(
-      svgEl(
-        'text',
-        { x: 68, y: 142, 'font-size': 48, fill: '#1e1e1b', 'font-family': 'serif' },
-        '𝄞'
-      )
-    );
-    svg.appendChild(
-      svgEl(
-        'text',
-        { x: 70, y: 294, 'font-size': 43, fill: '#1e1e1b', 'font-family': 'serif' },
-        '𝄢'
-      )
-    );
-
-    [treble, bass].forEach(staff => {
-      for (let i = 0; i < 5; i += 1) {
-        const y = staff.top + i * staff.gap;
-        svg.appendChild(
-          svgEl('line', {
-            x1: left,
-            y1: y,
-            x2: width - rightPad,
-            y2: y,
-            stroke: '#77736b',
-            'stroke-width': 1
-          })
-        );
-      }
-    });
-
-    const barline = (x, strong) => {
-      [treble, bass].forEach(staff => {
-        svg.appendChild(
-          svgEl('line', {
-            x1: x,
-            y1: staff.top,
-            x2: x,
-            y2: staff.bottom,
-            stroke: strong ? '#5c5953' : '#b3aea4',
-            'stroke-width': strong ? 1.5 : 1
-          })
-        );
-      });
+  function osmdOptions(drawFingerings) {
+    return {
+      backend: 'svg',
+      autoResize: true,
+      drawTitle: false,
+      drawSubtitle: false,
+      drawComposer: false,
+      drawLyricist: false,
+      drawCredits: false,
+      drawPartNames: false,
+      drawPartAbbreviations: false,
+      drawFingerings,
+      fingeringPosition: 'above',
+      drawMeasureNumbers: true,
+      drawTimeSignatures: true,
+      drawMetronomeMarks: true,
+      autoBeam: true,
+      followCursor: false,
+      cursorsOptions: [{ type: 0, color: '#bb4c3e', alpha: 0.45, follow: false }]
     };
-    let previousSignature = '';
-    bars.forEach((bar, index) => {
-      const x = left + bar.start * pxPerBeat;
-      barline(x, index === 0);
-      if (!bar.implicit && bar.number != null) {
-        svg.appendChild(
-          svgEl('text', { x: x + 7, y: 72, 'font-size': 10, fill: '#aaa49a' }, String(bar.number))
-        );
-      }
-      const signature = `${bar.beats}/${bar.beatType}`;
-      if (signature !== previousSignature) {
-        svg.appendChild(
-          svgEl(
-            'text',
-            {
-              x: x + 8,
-              y: 88,
-              'font-size': 12,
-              fill: '#5c5953',
-              'font-weight': 700
-            },
-            signature
-          )
-        );
-        previousSignature = signature;
-      }
-    });
-    if (bars.length) barline(left + bars[bars.length - 1].end * pxPerBeat, true);
-
-    piece.notes.forEach((note, index) => {
-      const staff = note.hand === 'right' ? treble : bass;
-      const x = left + note.start * pxPerBeat + 18;
-      const y = noteY(note, note.hand, staff);
-      const group = svgEl('g', { 'data-note': index, 'data-start': note.start });
-      addLedgerLines(group, x, y, staff);
-
-      const parsed = parsePitch(note.pitch);
-      if (parsed.accidental) {
-        group.appendChild(
-          svgEl(
-            'text',
-            { x: x - 18, y: y + 5, 'font-size': 16, fill: '#1e1e1b', 'font-family': 'serif' },
-            parsed.accidental === '#' ? '♯' : '♭'
-          )
-        );
-      }
-
-      const open = note.duration >= 2;
-      group.appendChild(
-        svgEl('ellipse', {
-          cx: x,
-          cy: y,
-          rx: 7.5,
-          ry: 5.3,
-          fill: open ? '#fffdf8' : '#1e1e1b',
-          stroke: '#1e1e1b',
-          'stroke-width': 1.7,
-          transform: `rotate(-14 ${x} ${y})`
-        })
-      );
-
-      if (note.duration < 4) {
-        const stemUp = y > (staff.top + staff.bottom) / 2;
-        group.appendChild(
-          svgEl('line', {
-            x1: stemUp ? x + 6 : x - 6,
-            y1: y,
-            x2: stemUp ? x + 6 : x - 6,
-            y2: stemUp ? y - 34 : y + 34,
-            stroke: '#1e1e1b',
-            'stroke-width': 1.5
-          })
-        );
-      }
-
-      if (state.view === 'letters') {
-        const labelY =
-          note.hand === 'right'
-            ? Math.min(y - 18, staff.top - 18)
-            : Math.max(y + 25, staff.bottom + 28);
-        group.appendChild(
-          svgEl(
-            'text',
-            {
-              x,
-              y: labelY,
-              'text-anchor': 'middle',
-              'font-size': 12,
-              fill: '#5f5a52',
-              'font-weight': 750
-            },
-            `${parsed.letter}${parsed.accidental}`
-          )
-        );
-      }
-
-      if (state.view === 'fingering' && note.finger) {
-        const labelY =
-          note.hand === 'right'
-            ? Math.min(y - 18, staff.top - 18)
-            : Math.max(y + 25, staff.bottom + 28);
-        group.appendChild(
-          svgEl('circle', { cx: x, cy: labelY - 4, r: 9, fill: '#eee9df', stroke: '#d7d0c4' })
-        );
-        group.appendChild(
-          svgEl(
-            'text',
-            {
-              x,
-              y: labelY,
-              'text-anchor': 'middle',
-              'font-size': 11,
-              fill: '#3d3a35',
-              'font-weight': 750
-            },
-            String(note.finger)
-          )
-        );
-      }
-
-      svg.appendChild(group);
-    });
-
-    const playhead = svgEl('line', {
-      id: 'scorePlayhead',
-      x1: left,
-      y1: 62,
-      x2: left,
-      y2: 326,
-      stroke: '#bb4c3e',
-      'stroke-width': 2,
-      opacity: 0.65
-    });
-    svg.appendChild(playhead);
-    updateScorePlayhead();
   }
 
-  function updateScorePlayhead() {
-    const line = document.getElementById('scorePlayhead');
-    if (!line) return;
-    const x = 112 + state.beat * 54 + 18;
-    line.setAttribute('x1', x);
-    line.setAttribute('x2', x);
+  function setRenderNote(message) {
+    if (els.renderNote) els.renderNote.textContent = message;
+  }
+
+  function pitchNameFromOsmd(pitch) {
+    const raw = typeof pitch?.ToStringShort === 'function' ? pitch.ToStringShort(0) : '';
+    const match = /^([A-G])([#b]*)n?/.exec(raw);
+    const frequency = Number(pitch?.Frequency);
+    if (!match || !Number.isFinite(frequency) || frequency <= 0) {
+      const name = raw.replace(/(-?\d+)$/, '');
+      return { fullName: raw, name };
+    }
+    // ToStringShort uses OSMD's internal octave, which is three below scientific pitch.
+    const midi = Math.round(12 * Math.log2(frequency / 440) + 69);
+    const octave = Math.floor(midi / 12) - 1;
+    return {
+      fullName: `${match[1]}${match[2]}${octave}`,
+      name: `${match[1]}${match[2]}`
+    };
+  }
+
+  function modelNoteAt(name, beat) {
+    const notes = state.piece?.notes || [];
+    for (let index = 0; index < notes.length; index += 1) {
+      const note = notes[index];
+      if (note.pitch !== name) continue;
+      if (Math.abs(beat - Number(note.start)) <= 0.08) return note;
+    }
+    return null;
+  }
+
+  function updateScoreAnnotations() {
+    const layer = els.scoreLabels;
+    if (!layer) return;
+    layer.replaceChildren();
+    const letters = state.view === 'letters';
+    const fingering = state.view === 'fingering';
+    if (!letters && !fingering) return;
+    state.scoreLabels.forEach(label => {
+      if (letters && label.name) {
+        const node = document.createElement('span');
+        node.className = label.below ? 'score-label is-below' : 'score-label';
+        node.textContent = label.name;
+        node.style.left = `${label.x}px`;
+        node.style.top = `${label.y}px`;
+        layer.appendChild(node);
+      }
+      if (!fingering) return;
+      const model = modelNoteAt(label.fullName, label.beat);
+      if (!model?.generatedFinger || !model.finger) return;
+      const node = document.createElement('span');
+      node.className = label.below
+        ? 'score-finger is-generated is-below'
+        : 'score-finger is-generated';
+      node.textContent = String(model.finger);
+      node.style.left = `${label.x}px`;
+      node.style.top = `${label.y}px`;
+      layer.appendChild(node);
+    });
+  }
+
+  function noteheadBox(gNote) {
+    const shape = gNote.PositionAndShape;
+    const position = shape?.AbsolutePosition;
+    if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return null;
+    const unit = 10 * (state.osmd?.zoom || 1);
+    const width = Number(shape.Size?.width) || 0;
+    const height = Number(shape.Size?.height) || 1;
+    return {
+      x: position.x * unit + (width * unit) / 2,
+      top: position.y * unit,
+      bottom: (position.y + height) * unit
+    };
+  }
+
+  function spreadScoreLabels(labels) {
+    const groups = new Map();
+    labels.forEach(label => {
+      const key = `${label.below ? 'below' : 'above'}|${label.beat.toFixed(2)}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(label);
+    });
+    groups.forEach(group => {
+      group.sort((a, b) => a.x - b.x);
+      for (let index = 1; index < group.length; index += 1) {
+        if (group[index].x - group[index - 1].x < 16) {
+          group[index].x = group[index - 1].x + 16;
+        }
+      }
+    });
+  }
+
+  function indexScoreCursor() {
+    const osmd = state.osmd;
+    const cursor = osmd?.cursor;
+    if (!cursor?.iterator) return;
+    try {
+      indexScoreCursorSteps(cursor);
+    } catch (error) {
+      console.error(error);
+      state.cursorBeats = [];
+      state.scoreLabels = [];
+    }
+  }
+
+  function indexScoreCursorSteps(cursor) {
+    cursor.reset();
+    const beats = [];
+    const labels = [];
+    while (!cursor.iterator.EndReached) {
+      const whole = cursor.iterator.CurrentSourceTimestamp?.RealValue || 0;
+      const beat = whole * 4;
+      beats.push(beat);
+      (cursor.GNotesUnderCursor() || []).forEach(gNote => {
+        const source = gNote.sourceNote;
+        if (!source || source.isRest()) return;
+        const pitch = source.Pitch;
+        const box = noteheadBox(gNote);
+        if (!pitch || !box) return;
+        const names = pitchNameFromOsmd(pitch);
+        const model = modelNoteAt(names.fullName, beat);
+        const below = model?.hand === 'left';
+        labels.push({
+          name: names.name,
+          fullName: names.fullName,
+          x: box.x,
+          y: below ? box.bottom + 3 : box.top - 2,
+          below,
+          beat
+        });
+      });
+      cursor.next();
+    }
+    spreadScoreLabels(labels);
+    cursor.reset();
+    cursor.show();
+    state.cursorBeats = beats;
+    state.cursorIndex = 0;
+    state.scoreLabels = labels;
+    updateScoreAnnotations();
+  }
+
+  function scrollScoreCursor() {
+    const cursorElement = state.osmd?.cursor?.cursorElement;
+    const scroller = document.getElementById('scoreScroll');
+    if (!cursorElement || !scroller || state.view === 'falling') return;
+    const cursorBox = cursorElement.getBoundingClientRect();
+    const frame = scroller.getBoundingClientRect();
+    if (cursorBox.height <= 0) return;
+    if (cursorBox.top < frame.top + 20) {
+      scroller.scrollTop -= frame.top + 20 - cursorBox.top;
+    } else if (cursorBox.bottom > frame.bottom - 20) {
+      scroller.scrollTop += cursorBox.bottom - (frame.bottom - 20);
+    }
+  }
+
+  function syncScoreCursor(beat) {
+    const cursor = state.osmd?.cursor;
+    const beats = state.cursorBeats;
+    if (!cursor || !beats?.length) return;
+    let lo = 0;
+    let hi = beats.length - 1;
+    let found = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (beats[mid] <= beat + 0.02) {
+        found = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    if (found === state.cursorIndex) return;
+    if (found === state.cursorIndex - 1 && typeof cursor.previous === 'function') {
+      cursor.previous();
+    } else if (found > state.cursorIndex && found - state.cursorIndex < 12) {
+      while (state.cursorIndex < found) {
+        cursor.next();
+        state.cursorIndex += 1;
+      }
+    } else {
+      cursor.reset();
+      for (let index = 0; index < found; index += 1) cursor.next();
+    }
+    state.cursorIndex = found;
+    cursor.show();
+    scrollScoreCursor();
+  }
+
+  async function renderScore() {
+    const piece = state.piece;
+    const container = els.osmdContainer;
+    const token = (state.renderToken += 1);
+    state.cursorBeats = [];
+    state.cursorIndex = 0;
+    state.scoreLabels = [];
+    if (!piece || !container) return;
+    const Osmd = window.opensheetmusicdisplay?.OpenSheetMusicDisplay;
+    const xml = ensureMusicXml(piece);
+    if (!Osmd || !xml) {
+      setRenderNote('Score engraving is unavailable in this browser.');
+      return;
+    }
+    if (!state.osmd) {
+      state.osmd = new Osmd(container, osmdOptions(state.view === 'fingering'));
+    } else if (typeof state.osmd.setOptions === 'function') {
+      state.osmd.setOptions({
+        drawFingerings: state.view === 'fingering',
+        fingeringPosition: 'above',
+        autoBeam: true
+      });
+    }
+    // OSMD only applies drawFingerings when the value is false, so the on-state
+    // has to be written onto the engraving rules directly.
+    if (state.osmd.EngravingRules) {
+      state.osmd.EngravingRules.RenderFingerings = state.view === 'fingering';
+    }
+    setRenderNote('Engraving score…');
+    try {
+      await state.osmd.load(xml);
+      if (token !== state.renderToken) return;
+      state.osmd.render();
+      if (token !== state.renderToken) return;
+      state.osmd.cursor?.show();
+      indexScoreCursor();
+      syncScoreCursor(state.beat);
+      setRenderNote(
+        'Engraved with OpenSheetMusicDisplay. Note names and generated fingerings sit on the engraved score. Falling notes use the same timing.'
+      );
+    } catch (error) {
+      console.error(error);
+      if (token === state.renderToken) {
+        setRenderNote(error?.message || 'Could not engrave this score.');
+      }
+    }
   }
 
   function isBlackMidi(midi) {
@@ -902,7 +907,7 @@
     els.progress.value = Math.round(Math.max(0, Math.min(1, fraction)) * 1000);
     els.currentTime.textContent = formatTime(secondsForBeats(state.beat));
     els.totalTime.textContent = formatTime(secondsForBeats(beats));
-    updateScorePlayhead();
+    syncScoreCursor(state.beat);
   }
 
   function frame() {
@@ -919,7 +924,14 @@
     requestAnimationFrame(frame);
   }
 
+  function scoreNeedsLayout() {
+    const svg = els.osmdContainer?.querySelector('svg');
+    if (!svg) return true;
+    return svg.getBoundingClientRect().width < 20;
+  }
+
   function setView(view) {
+    const previous = state.view;
     state.view = view;
     els.tabs.forEach(tab => {
       const active = tab.dataset.view === view;
@@ -932,8 +944,15 @@
     if (falling) {
       requestFallingRedraw();
       requestAnimationFrame(() => requestFallingRedraw());
-    } else {
+    } else if (
+      (previous === 'fingering') !== (view === 'fingering') ||
+      !state.osmd ||
+      scoreNeedsLayout()
+    ) {
       renderScore();
+    } else {
+      updateScoreAnnotations();
+      syncScoreCursor(state.beat);
     }
   }
 

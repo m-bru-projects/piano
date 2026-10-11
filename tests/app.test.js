@@ -49,24 +49,6 @@ function bootApp() {
   window.eval(fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
 }
 
-function verticalBarXs() {
-  return [
-    ...new Set(
-      [...document.querySelectorAll('#scoreSvg line')]
-        .filter(line => {
-          const x1 = Number(line.getAttribute('x1'));
-          const x2 = Number(line.getAttribute('x2'));
-          const y1 = Number(line.getAttribute('y1'));
-          const y2 = Number(line.getAttribute('y2'));
-          const treble = y1 === 96 && y2 === 144;
-          const bass = y1 === 248 && y2 === 296;
-          return x1 === x2 && (treble || bass);
-        })
-        .map(line => Number(line.getAttribute('x1')))
-    )
-  ].sort((a, b) => a - b);
-}
-
 describe('score and transport', () => {
   beforeAll(() => {
     vi.useFakeTimers();
@@ -77,14 +59,9 @@ describe('score and transport', () => {
     vi.useRealTimers();
   });
 
-  it('draws 4/4 demo bars on quarter-note boundaries', () => {
-    const texts = [...document.querySelectorAll('#scoreSvg text')].map(node => node.textContent);
-    expect(texts).toContain('4/4');
-    expect(texts).toEqual(expect.arrayContaining(['1', '2', '3', '4']));
-    expect(verticalBarXs()).toEqual([112, 328, 544, 760, 976]);
-  });
-
-  it('draws 6/8, pickup and time-signature changes from real bar boundaries', () => {
+  it('keeps an engraved-score container and applies an imported tempo', () => {
+    expect(document.getElementById('osmdContainer')).toBeTruthy();
+    expect(document.getElementById('scoreSvg')).toBeNull();
     window.PianoApp.setPiece({
       id: 'six-eight',
       title: 'Six eight',
@@ -106,37 +83,6 @@ describe('score and transport', () => {
     expect(document.getElementById('tempo').max).toBe('240');
     expect(document.getElementById('tempo').value).toBe('200');
     expect(document.getElementById('tempoValue').textContent).toBe('200 BPM');
-    expect(
-      [...document.querySelectorAll('#scoreSvg text')].some(node => node.textContent === '6/8')
-    ).toBe(true);
-    expect(verticalBarXs()).toEqual([112, 274, 436]);
-
-    window.PianoApp.setPiece({
-      id: 'pickup',
-      title: 'Pickup',
-      composer: 'Test',
-      description: 'Pickup test',
-      key: 'A minor',
-      timeSignature: [3, 4],
-      tempo: 72,
-      level: 'Test',
-      bars: [
-        { start: 0, end: 1, number: null, implicit: true, beats: 3, beatType: 4 },
-        { start: 1, end: 4, number: 1, implicit: false, beats: 3, beatType: 4 },
-        { start: 4, end: 7, number: 2, implicit: false, beats: 6, beatType: 8 }
-      ],
-      notes: [
-        { pitch: 'E5', start: 0, duration: 1, hand: 'right' },
-        { pitch: 'C5', start: 1, duration: 3, hand: 'right' },
-        { pitch: 'G4', start: 4, duration: 3, hand: 'right' }
-      ]
-    });
-    const texts = [...document.querySelectorAll('#scoreSvg text')].map(node => node.textContent);
-    expect(texts.filter(text => text === '1')).toHaveLength(1);
-    expect(texts).toContain('3/4');
-    expect(texts).toContain('6/8');
-    expect(verticalBarXs()).toEqual([112, 166, 328, 490]);
-    expect(document.getElementById('tempo').value).toBe('72');
   });
 
   it('clamps an out-of-range tempo onto the slider', () => {

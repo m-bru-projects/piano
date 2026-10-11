@@ -54,12 +54,14 @@
           </div>
 
           <div class="view-panel" id="scorePanel">
-            <div class="score-scroll">
-              <svg id="scoreSvg" role="img" aria-label="Piano score"></svg>
+            <div class="score-scroll" id="scoreScroll">
+              <div class="score-stage" id="scoreStage">
+                <div id="osmdContainer" role="img" aria-label="Piano score"></div>
+                <div id="scoreLabels" class="score-labels"></div>
+              </div>
             </div>
-            <p class="render-note">
-              Prototype notation renderer — both hands share the same underlying note data as the
-              falling-notes view.
+            <p class="render-note" id="renderNote">
+              Engraved with OpenSheetMusicDisplay. Falling notes use the same note data.
             </p>
           </div>
 
@@ -104,7 +106,9 @@
       </footer>
     </div>
 
+    <script src="./vendor/opensheetmusicdisplay.min.js"></script>
     <script src="./data.js"></script>
+    <script src="./musicxml-export.js"></script>
     <script src="./app.js"></script>
     <script src="./piano-enhancements.js"></script>
     <script src="./musicxml-import.js"></script>

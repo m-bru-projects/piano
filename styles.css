@@ -193,13 +193,54 @@ main {
   display: none;
 }
 .score-scroll {
-  overflow-x: auto;
-  padding: 26px 18px 8px;
+  overflow: auto;
+  max-height: calc(100vh - 250px);
+  padding: 8px 8px 16px;
+  background: #fffdf8;
 }
-#scoreSvg {
+.score-stage {
+  position: relative;
+}
+#osmdContainer {
+  position: relative;
+  min-height: 280px;
+}
+#osmdContainer svg {
   display: block;
-  min-width: 100%;
-  height: 440px;
+}
+.score-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.score-label,
+.score-finger {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  font:
+    700 11px/1 system-ui,
+    sans-serif;
+  color: #3d3a35;
+  background: rgba(255, 253, 248, 0.92);
+  border-radius: 4px;
+  padding: 1px 3px;
+}
+.score-label.is-below,
+.score-finger.is-below {
+  transform: translate(-50%, 2px);
+}
+.score-finger {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid #d7d0c4;
+  border-radius: 99px;
+}
+.score-finger.is-generated {
+  border-style: dashed;
+  opacity: 0.88;
 }
 .render-note {
   margin: 0;

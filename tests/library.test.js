@@ -65,6 +65,22 @@ describe('standard library', () => {
     expect(piece.notes.some(note => note.pitch === 'Bb3' || note.pitch === 'Bb4')).toBe(true);
     expect(piece.notes.some(note => note.pitch.startsWith('A#'))).toBe(false);
     expect(piece.notes.length).toBeGreaterThan(400);
+    expect(xml).toContain('<type>16th</type>');
+    expect(xml).toContain('<key><fifths>0</fifths><mode>major</mode></key>');
+    const measures = xml.match(/<measure\b[^>]*>[\s\S]*?<\/measure>/g) || [];
+    measures.forEach(measure => {
+      const stavesByVoice = new Map();
+      const notes = measure.match(/<note>[\s\S]*?<\/note>/g) || [];
+      notes.forEach(note => {
+        const voice = note.match(/<voice>(\d+)<\/voice>/)?.[1] || '1';
+        const staff = note.match(/<staff>(\d+)<\/staff>/)?.[1] || '1';
+        if (!stavesByVoice.has(voice)) stavesByVoice.set(voice, new Set());
+        stavesByVoice.get(voice).add(staff);
+      });
+      stavesByVoice.forEach(staves => {
+        expect(staves.size).toBe(1);
+      });
+    });
   });
 
   it('keeps the Für Elise pickup shorter than a full bar', () => {
