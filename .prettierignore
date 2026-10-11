@@ -1,0 +1,5 @@
+node_modules
+library/scores
+samples
+vendor
+package-lock.json
