@@ -13,6 +13,7 @@
     pieceDescription: document.getElementById('pieceDescription'),
     pieceMeta: document.getElementById('pieceMeta'),
     osmdContainer: document.getElementById('osmdContainer'),
+    scoreStage: document.getElementById('scoreStage'),
     scoreLabels: document.getElementById('scoreLabels'),
     renderNote: document.getElementById('renderNote'),
     scorePanel: document.getElementById('scorePanel'),
@@ -495,6 +496,276 @@
     scrollScoreCursor();
   }
 
+  const SHEET_NOTE_RADIUS = 1.8;
+  const SHEET_SYSTEM_SLACK = 4;
+
+  function wholeToBeats(value) {
+    const whole = Number(value?.RealValue ?? value);
+    return Number.isFinite(whole) ? whole * 4 : null;
+  }
+
+  function shapeBounds(shape) {
+    const position = shape?.AbsolutePosition;
+    if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return null;
+    const borderLeft = Number(shape.BorderLeft);
+    const borderRight = Number(shape.BorderRight);
+    const borderTop = Number(shape.BorderTop);
+    const borderBottom = Number(shape.BorderBottom);
+    const width = Number(shape.Size?.width);
+    const height = Number(shape.Size?.height);
+    const left = position.x + (Number.isFinite(borderLeft) ? borderLeft : 0);
+    const right =
+      position.x +
+      (Number.isFinite(borderRight) ? borderRight : Number.isFinite(width) ? width : 0);
+    const top = position.y + (Number.isFinite(borderTop) ? borderTop : 0);
+    const bottom =
+      position.y +
+      (Number.isFinite(borderBottom) ? borderBottom : Number.isFinite(height) ? height : 0);
+    if (!(right > left + 0.01)) return null;
+    return {
+      left,
+      right,
+      top: Math.min(top, bottom),
+      bottom: Math.max(top, bottom)
+    };
+  }
+
+  function beatUnitFor(startBeat) {
+    const bars = pieceBars();
+    let match = null;
+    for (const bar of bars) {
+      if (startBeat >= bar.start - 0.03 && startBeat < bar.end - 0.03) {
+        match = bar;
+        break;
+      }
+    }
+    const beatType = Number(match?.beatType || state.piece?.timeSignature?.[1]) || 4;
+    const unit = 4 / beatType;
+    return unit > 0 && Number.isFinite(unit) ? unit : 1;
+  }
+
+  function readSheetHitModel() {
+    const pages = state.osmd?.GraphicSheet?.MusicPages;
+    if (!pages?.length) return null;
+    const notes = [];
+    const systems = [];
+    for (const page of pages) {
+      for (const system of page.MusicSystems || []) {
+        const measuresByStart = new Map();
+        let top = Infinity;
+        let bottom = -Infinity;
+        let left = Infinity;
+        let right = -Infinity;
+        const systemNotes = [];
+        for (const line of system.StaffLines || []) {
+          const lineBox = shapeBounds(line.PositionAndShape);
+          if (lineBox) {
+            top = Math.min(top, lineBox.top);
+            bottom = Math.max(bottom, lineBox.bottom);
+            left = Math.min(left, lineBox.left);
+            right = Math.max(right, lineBox.right);
+          }
+          for (const measure of line.Measures || []) {
+            const source = measure.parentSourceMeasure;
+            const startWhole = Number(source?.AbsoluteTimestamp?.RealValue);
+            const durationWhole = Number(source?.Duration?.RealValue);
+            if (!Number.isFinite(startWhole)) continue;
+            const box = shapeBounds(measure.PositionAndShape);
+            if (!box) continue;
+            const startBeat = startWhole * 4;
+            const endBeat = startBeat + (Number.isFinite(durationWhole) ? durationWhole * 4 : 0);
+            const key = startWhole.toFixed(6);
+            let record = measuresByStart.get(key);
+            if (!record) {
+              record = {
+                left: box.left,
+                right: box.right,
+                startBeat,
+                endBeat,
+                beatUnit: beatUnitFor(startBeat),
+                anchors: []
+              };
+              measuresByStart.set(key, record);
+            } else {
+              record.left = Math.min(record.left, box.left);
+              record.right = Math.max(record.right, box.right);
+              record.endBeat = Math.max(record.endBeat, endBeat);
+            }
+            top = Math.min(top, box.top);
+            bottom = Math.max(bottom, box.bottom);
+            for (const entry of measure.staffEntries || []) {
+              const beat = wholeToBeats(entry.getAbsoluteTimestamp?.());
+              const entryX = Number(entry.PositionAndShape?.AbsolutePosition?.x);
+              if (Number.isFinite(beat) && Number.isFinite(entryX)) {
+                const anchor = record.anchors.find(item => Math.abs(item.beat - beat) < 0.0001);
+                if (anchor) anchor.x = Math.min(anchor.x, entryX);
+                else record.anchors.push({ x: entryX, beat });
+              }
+              for (const voice of entry.graphicalVoiceEntries || []) {
+                for (const note of voice.notes || []) {
+                  const noteBox = shapeBounds(note.PositionAndShape);
+                  if (!noteBox || !Number.isFinite(beat)) continue;
+                  const hit = {
+                    x: (noteBox.left + noteBox.right) / 2,
+                    y: (noteBox.top + noteBox.bottom) / 2,
+                    beat
+                  };
+                  systemNotes.push(hit);
+                  notes.push(hit);
+                }
+              }
+            }
+          }
+        }
+        systemNotes.forEach(note => {
+          top = Math.min(top, note.y);
+          bottom = Math.max(bottom, note.y);
+        });
+        const measures = [...measuresByStart.values()].sort(
+          (a, b) => a.left - b.left || a.startBeat - b.startBeat
+        );
+        measures.forEach(measure => {
+          measure.anchors = measure.anchors
+            .filter(anchor => anchor.x >= measure.left - 2 && anchor.x <= measure.right + 2)
+            .sort((a, b) => a.x - b.x || a.beat - b.beat);
+        });
+        if (!measures.length || !Number.isFinite(top) || !Number.isFinite(left)) continue;
+        systems.push({ top, bottom, left, right, measures });
+      }
+    }
+    if (!systems.length) return null;
+    return {
+      notes,
+      systems,
+      noteRadius: SHEET_NOTE_RADIUS,
+      systemSlack: SHEET_SYSTEM_SLACK
+    };
+  }
+
+  function clampUnit(value) {
+    return Math.min(1, Math.max(0, value));
+  }
+
+  // A notehead hit is exact. Empty staff space uses the horizontal position
+  // between engraved onsets, then snaps to the bar's beat grid unless a note
+  // onset is closer (tuplets and other off-grid rhythms).
+  function snapRawBeat(raw, measure) {
+    const unit = measure.beatUnit > 0 ? measure.beatUnit : 1;
+    const span = measure.endBeat - measure.startBeat;
+    if (!(span > 0)) return measure.startBeat;
+    const maxStep = Math.max(0, Math.round(span / unit));
+    const steps = Math.max(0, Math.min(maxStep, Math.round((raw - measure.startBeat) / unit)));
+    const grid = measure.startBeat + steps * unit;
+    let best = grid;
+    let bestDist = Math.abs(grid - raw);
+    for (const anchor of measure.anchors || []) {
+      const dist = Math.abs(anchor.beat - raw);
+      if (dist < bestDist - 1e-6) {
+        best = anchor.beat;
+        bestDist = dist;
+      }
+    }
+    return best;
+  }
+
+  function beatInMeasure(x, measure) {
+    const anchors = (measure.anchors || []).filter(
+      anchor => Number.isFinite(anchor.x) && Number.isFinite(anchor.beat)
+    );
+    if (!anchors.length) {
+      const width = measure.right - measure.left;
+      if (!(width > 0)) return measure.startBeat;
+      const fraction = clampUnit((x - measure.left) / width);
+      return snapRawBeat(
+        measure.startBeat + fraction * (measure.endBeat - measure.startBeat),
+        measure
+      );
+    }
+    if (x <= anchors[0].x) return anchors[0].beat;
+    const points = anchors.slice();
+    const last = points[points.length - 1];
+    if (Number.isFinite(measure.right) && measure.right > last.x + 0.05) {
+      points.push({ x: measure.right, beat: measure.endBeat });
+    }
+    if (x >= points[points.length - 1].x) return points[points.length - 1].beat;
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const left = points[index];
+      const right = points[index + 1];
+      if (x > right.x) continue;
+      const span = right.x - left.x;
+      const fraction = span > 0 ? clampUnit((x - left.x) / span) : 0;
+      return snapRawBeat(left.beat + fraction * (right.beat - left.beat), measure);
+    }
+    return points[points.length - 1].beat;
+  }
+
+  function beatForSheetClick(point, model) {
+    if (!point || !model || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
+    const radius = Number.isFinite(model.noteRadius) ? model.noteRadius : SHEET_NOTE_RADIUS;
+    let bestNote = null;
+    let bestDist = radius;
+    for (const note of model.notes || []) {
+      if (!Number.isFinite(note.x) || !Number.isFinite(note.y) || !Number.isFinite(note.beat))
+        continue;
+      const dist = Math.hypot(note.x - point.x, note.y - point.y);
+      if (dist <= radius && dist <= bestDist) {
+        bestDist = dist;
+        bestNote = note;
+      }
+    }
+    if (bestNote) return bestNote.beat;
+
+    const slack = Number.isFinite(model.systemSlack) ? model.systemSlack : SHEET_SYSTEM_SLACK;
+    let system = null;
+    let systemDist = Infinity;
+    for (const candidate of model.systems || []) {
+      const dist =
+        point.y < candidate.top
+          ? candidate.top - point.y
+          : point.y > candidate.bottom
+            ? point.y - candidate.bottom
+            : 0;
+      if (dist < systemDist) {
+        systemDist = dist;
+        system = candidate;
+      }
+    }
+    if (!system || systemDist > slack) return null;
+
+    const measures = system.measures || [];
+    if (!measures.length) return null;
+    let measure = null;
+    for (const candidate of measures) {
+      if (point.x >= candidate.left && point.x < candidate.right) {
+        measure = candidate;
+        break;
+      }
+    }
+    if (!measure) {
+      const first = measures[0];
+      const last = measures[measures.length - 1];
+      if (point.x < first.left) {
+        if (point.x < system.left - 1) return null;
+        measure = first;
+      } else if (point.x >= last.right) {
+        if (point.x > system.right + 1) return null;
+        measure = last;
+      } else {
+        let gap = Infinity;
+        for (const candidate of measures) {
+          const dist =
+            point.x < candidate.left ? candidate.left - point.x : point.x - candidate.right;
+          if (dist < gap) {
+            gap = dist;
+            measure = candidate;
+          }
+        }
+      }
+    }
+    if (!measure) return null;
+    return beatInMeasure(point.x, measure);
+  }
+
   async function renderScore() {
     const piece = state.piece;
     const container = els.osmdContainer;
@@ -533,7 +804,7 @@
       indexScoreCursor();
       syncScoreCursor(state.beat);
       setRenderNote(
-        'Engraved with OpenSheetMusicDisplay. Note names and generated fingerings sit on the engraved score. Falling notes use the same timing.'
+        'Engraved with OpenSheetMusicDisplay. Click or tap the score to play from that spot. Note names and generated fingerings sit on the engraved score. Falling notes use the same timing.'
       );
     } catch (error) {
       console.error(error);
@@ -1110,13 +1381,38 @@
     if (state.view === 'falling') requestFallingRedraw();
   }
 
-  function play() {
-    if (state.beat >= totalBeats() - 0.001) state.beat = 0;
+  function clampPlayableBeat(beat) {
+    const limit = totalBeats();
+    if (!(limit > 0)) return 0;
+    const target = Math.max(0, Math.min(limit, beat));
+    if (target < limit - 1e-6) return target;
+    const unit = beatUnitFor(Math.max(0, limit - 1e-3));
+    const step = Math.min(limit, unit > 0 ? unit : 1);
+    return Math.max(0, limit - step);
+  }
+
+  function beginPlayback() {
     state.playing = true;
     anchorClock(state.beat);
     armScheduler(state.beat);
     ensureScheduler();
     updatePlayButton();
+  }
+
+  function playFromBeat(beat) {
+    if (!Number.isFinite(beat)) return;
+    const target = clampPlayableBeat(beat);
+    if (state.playing) {
+      seekTo(target, { keepPlaying: true });
+      return;
+    }
+    seekTo(target, { keepPlaying: false });
+    beginPlayback();
+  }
+
+  function play() {
+    if (state.beat >= totalBeats() - 0.001) state.beat = 0;
+    beginPlayback();
   }
 
   function pause() {
@@ -1228,6 +1524,65 @@
 
   els.tabs.forEach(tab => tab.addEventListener('click', () => setView(tab.dataset.view)));
 
+  let scorePointer = null;
+  let lastSheetSeekAt = 0;
+
+  function playFromSheetClient(clientX, clientY) {
+    const now = Date.now();
+    if (now - lastSheetSeekAt < 50) return;
+    const sheet = state.osmd?.GraphicSheet;
+    if (!sheet || typeof sheet.domToSvg !== 'function' || typeof sheet.svgToOsmd !== 'function')
+      return;
+    let svgPoint;
+    try {
+      svgPoint = sheet.domToSvg({ x: clientX, y: clientY });
+    } catch (error) {
+      console.error(error);
+      return;
+    }
+    const point = sheet.svgToOsmd(svgPoint);
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+    let beat = null;
+    try {
+      beat = beatForSheetClick(point, readSheetHitModel());
+    } catch (error) {
+      console.error(error);
+      return;
+    }
+    if (!Number.isFinite(beat)) return;
+    lastSheetSeekAt = now;
+    playFromBeat(beat);
+  }
+
+  function onScorePointerDown(event) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const tag = event.target?.tagName;
+    if (tag === 'A' || tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT') return;
+    scorePointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
+  }
+
+  function onScorePointerUp(event) {
+    const start = scorePointer;
+    if (!start || start.id !== event.pointerId) return;
+    scorePointer = null;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (dx * dx + dy * dy > 100) return;
+    playFromSheetClient(event.clientX, event.clientY);
+  }
+
+  if (els.scoreStage) {
+    els.scoreStage.addEventListener('pointerdown', onScorePointerDown);
+    els.scoreStage.addEventListener('click', event => {
+      if (event.button !== 0) return;
+      playFromSheetClient(event.clientX, event.clientY);
+    });
+  }
+  window.addEventListener('pointerup', onScorePointerUp);
+  window.addEventListener('pointercancel', () => {
+    scorePointer = null;
+  });
+
   els.playButton.addEventListener('click', () => {
     if (state.playing) pause();
     else play();
@@ -1318,6 +1673,8 @@
     redrawFalling: requestFallingRedraw,
     setPiece,
     keyboardRange,
+    beatForSheetClick,
+    playFromBeat,
     getState: () => ({
       piece: state.piece,
       view: state.view,
