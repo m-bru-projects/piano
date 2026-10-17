@@ -200,6 +200,9 @@ main {
 }
 .score-stage {
   position: relative;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
 }
 #osmdContainer {
   position: relative;
