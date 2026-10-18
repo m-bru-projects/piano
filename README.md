@@ -20,6 +20,7 @@ Pushes to `main` publish this same folder, including `library/`, with GitHub Act
 - The same score with note-name labels
 - The same score with fingering numbers
 - Falling-notes piano visualisation
+- Note reading: one note (or a short group) on an engraved staff, answered from the on-screen piano, the computer keyboard, note-name buttons, or a MIDI keyboard
 - Play / pause / restart
 - Scrubbable playback position
 - Tempo from 30 to 240 BPM
@@ -29,6 +30,12 @@ Pushes to `main` publish this same folder, including `library/`, with GitHub Act
 - Piece selector with demos, the standard library, and your imports
 - Local MusicXML import (`.musicxml`, `.xml` and `.mxl`)
 - Imported pieces saved in IndexedDB, with **Remove import** to delete the selected one
+
+## Note reading
+
+The **Note reading** tab drills single notes, or groups of two or three played left to right. OpenSheetMusicDisplay engraves the prompt on a treble staff, a bass staff, or a grand staff. Answer on the on-screen piano, with the computer keyboard (Z row, then the Q row an octave higher), or with a connected MIDI keyboard. The C D E buttons — or Do re mi, fixed do — check the letter and ignore the octave.
+
+Range presets are beginner (middle C, a fifth either way, split across the clefs), ledger lines, and a wider full range. Sharps and flats can be left out, and a key signature spells the notes (F♯ in G major, B♭ in F major). A correct answer scores points, grows a streak, and moves on. A miss shows the right note on the staff and on the key, plays it, and resets the streak. Notes you miss are more likely to return. Score, streak, accuracy, and average reaction time are for the current session. Best streak and best 60-second drill are kept in `localStorage`, with the settings.
 
 ## Playback and notation
 
@@ -99,6 +106,7 @@ Every view reads the same notes from `data.js`, a library score, or a MusicXML i
 - `styles.css` — layout and responsive styling
 - `data.js` — shared music data and demo pieces
 - `app.js` — OpenSheetMusicDisplay score, falling-notes renderer, transport and audio
+- `note-reading.js` — note-reading practice, spaced repetition, and session stats
 - `piano-samples.js` — nearest-sample mapping, playback rate and velocity gain
 - `musicxml-export.js` — writes MusicXML for the built-in demos
 - `piano-enhancements.js` — automatic fingering
@@ -108,7 +116,7 @@ Every view reads the same notes from `data.js`, a library score, or a MusicXML i
 - `vendor/` — OpenSheetMusicDisplay 2.2.0 and its license
 - `samples/import-test.musicxml` — small import test score
 - `samples/piano/` — CC0 VSCO 2 piano samples (see `samples/piano/LICENSE.txt`)
-- `tests/` — Vitest tests for the importer, exporter, ZIP reader, pitch parsing and library
+- `tests/` — Vitest tests for the importer, exporter, ZIP reader, pitch parsing, library, and note reading
 
 ## Tests and lint
 

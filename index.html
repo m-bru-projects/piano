@@ -3,7 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Functional piano score and falling-notes prototype" />
+    <meta
+      name="description"
+      content="Piano practice library with engraved scores, falling notes, and note reading"
+    />
     <title>Piano Library</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -42,6 +45,16 @@
             <button class="view-tab is-active" data-view="score" role="tab" aria-selected="true">
               Score
             </button>
+            <button
+              id="readingTab"
+              class="view-tab"
+              data-view="reading"
+              role="tab"
+              aria-selected="false"
+              aria-controls="readingPanel"
+            >
+              Note reading
+            </button>
             <button class="view-tab" data-view="letters" role="tab" aria-selected="false">
               Score + letters
             </button>
@@ -73,6 +86,110 @@
           <div class="view-panel is-hidden" id="fallingPanel">
             <div class="falling-wrap">
               <canvas id="fallingCanvas" aria-label="Falling piano notes"></canvas>
+            </div>
+          </div>
+
+          <div
+            class="view-panel is-hidden"
+            id="readingPanel"
+            role="tabpanel"
+            aria-labelledby="readingTab"
+          >
+            <div class="reading">
+              <div class="reading-heading">
+                <h2>Note reading</h2>
+                <p>Play the note you see. The next one follows on its own.</p>
+              </div>
+
+              <div class="reading-settings">
+                <label class="reading-field">
+                  Clef
+                  <select id="readingClef" aria-label="Clef">
+                    <option value="treble">Treble</option>
+                    <option value="bass">Bass</option>
+                    <option value="both">Grand staff</option>
+                  </select>
+                </label>
+                <label class="reading-field">
+                  Range
+                  <select id="readingRange" aria-label="Note range">
+                    <option value="beginner">Beginner</option>
+                    <option value="ledger">Ledger lines</option>
+                    <option value="full">Full range</option>
+                  </select>
+                </label>
+                <label class="reading-field">
+                  Key
+                  <select id="readingKey" aria-label="Key signature"></select>
+                </label>
+                <label class="reading-check">
+                  <input id="readingAccidentals" type="checkbox" />
+                  <span>Sharps &amp; flats</span>
+                </label>
+                <label class="reading-field">
+                  Names
+                  <select id="readingNaming" aria-label="Note names">
+                    <option value="letters">C D E</option>
+                    <option value="solfege">Do re mi</option>
+                  </select>
+                </label>
+                <label class="reading-field">
+                  Notes
+                  <select id="readingGroup" aria-label="Notes at once">
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                  </select>
+                </label>
+                <button id="readingTimed" class="reading-button is-primary" type="button">
+                  60s drill
+                </button>
+                <button id="readingReset" class="reading-button" type="button">Reset</button>
+                <button id="readingSkip" class="reading-button" type="button">Show answer</button>
+                <button id="readingMidi" class="reading-button" type="button">Connect MIDI</button>
+                <span id="readingMidiStatus" class="reading-midi-status" aria-live="polite"></span>
+              </div>
+
+              <div class="reading-stats" aria-live="polite">
+                <span class="reading-stat"><strong id="readingPoints">0</strong> score</span>
+                <span class="reading-stat"><strong id="readingStreak">0</strong> streak</span>
+                <span class="reading-stat"><strong id="readingAccuracy">–</strong> accuracy</span>
+                <span class="reading-stat"><strong id="readingReaction">–</strong> reaction</span>
+                <span id="readingClock" class="reading-stat is-hidden">
+                  <strong id="readingClockValue">1:00</strong> left
+                </span>
+                <span id="readingBest" class="reading-best"></span>
+              </div>
+
+              <div class="reading-stage" id="readingStage">
+                <div
+                  id="readingEngrave"
+                  role="img"
+                  aria-label="Note on the staff. The name stays hidden until you answer."
+                ></div>
+                <div class="reading-result">
+                  <p id="readingFeedback" class="reading-feedback" aria-live="assertive">
+                    Play this note
+                  </p>
+                  <p id="readingAnswer" class="reading-answer"></p>
+                </div>
+              </div>
+
+              <div
+                id="readingNames"
+                class="reading-names"
+                role="group"
+                aria-label="Note names. These check the letter, not the octave."
+              ></div>
+              <p id="readingHint" class="reading-hint"></p>
+              <div class="reading-keyboard-scroll">
+                <div
+                  id="readingKeyboard"
+                  class="reading-keyboard"
+                  role="group"
+                  aria-label="Piano keyboard"
+                ></div>
+              </div>
             </div>
           </div>
         </section>
@@ -134,6 +251,7 @@
     <script src="./musicxml-export.js"></script>
     <script src="./piano-samples.js"></script>
     <script src="./app.js"></script>
+    <script src="./note-reading.js"></script>
     <script src="./piano-enhancements.js"></script>
     <script src="./musicxml-import.js"></script>
     <script src="./library.js"></script>
