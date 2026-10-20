@@ -691,6 +691,7 @@
     let clockTimer = 0;
     let timed = null;
     let finished = false;
+    let awaitingEngraving = false;
     let keyboardSignature = '';
     let namesSignature = '';
     KEYS.forEach(key => {
@@ -1037,13 +1038,41 @@
       }
     }
 
+    function holdForEngraving() {
+      awaitingEngraving = true;
+      session.locked = true;
+      session.noteStartedAt = 0;
+    }
+
+    function releaseAfterEngraving(token) {
+      if (!awaitingEngraving || token !== renderToken) return;
+      awaitingEngraving = false;
+      if (!shown || finished) return;
+      if (timed && !timed.paused && (timed.expired || timed.endsAt <= now())) {
+        finishTimed({ recordBest: true });
+        return;
+      }
+      session = arm(session, now());
+      renderStats();
+    }
+
     function renderEngraving() {
       if (els.engrave) els.engrave.dataset.clef = settings.clef;
       const token = (renderToken += 1);
       const xml = musicXml(session.prompt?.notes || [], settings);
+      holdForEngraving();
+      const Osmd = window.opensheetmusicdisplay?.OpenSheetMusicDisplay;
+      if (!Osmd || !els.engrave) {
+        void engrave(xml, token);
+        releaseAfterEngraving(token);
+        return;
+      }
       const draw = () => {
         if (!shown || token !== renderToken) return;
-        engrave(xml, token);
+        engrave(xml, token).then(
+          () => releaseAfterEngraving(token),
+          () => releaseAfterEngraving(token)
+        );
       };
       if (typeof requestAnimationFrame === 'function') {
         requestAnimationFrame(() => requestAnimationFrame(draw));
@@ -1073,14 +1102,14 @@
       return last?.correct ? CORRECT_DELAY : WRONG_DELAY;
     }
 
-    function finishTimed() {
-      if (timed) {
-        clearTimeout(clockTimer);
-        timed = null;
-      }
+    function finishTimed({ recordBest = false } = {}) {
+      clearTimeout(advanceTimer);
+      clearTimeout(clockTimer);
+      timed = null;
       finished = true;
+      awaitingEngraving = false;
       session.locked = true;
-      if (session.points > progress.bestTimed) progress.bestTimed = session.points;
+      if (recordBest && session.points > progress.bestTimed) progress.bestTimed = session.points;
       saveProgress(progress);
       const summary = summarize(session.attempts);
       setFeedback(
@@ -1096,7 +1125,7 @@
       renderStats();
       if (left <= 0) {
         timed.expired = true;
-        if (!session.locked) finishTimed();
+        if (!session.locked) finishTimed({ recordBest: true });
         return;
       }
       clockTimer = window.setTimeout(tickClock, 200);
@@ -1119,7 +1148,7 @@
 
     function continueAfter(last) {
       if (timed?.expired || (timed && !timed.paused && timed.endsAt <= now())) {
-        finishTimed();
+        finishTimed({ recordBest: true });
         return;
       }
       if (last?.done) {
@@ -1270,7 +1299,6 @@
       const notes = session.prompt?.notes || [];
       if (!session.prompt || session.index >= notes.length) deal();
       else {
-        session = arm(session, now());
         setFeedback(promptStatus(), null);
         renderEngraving();
         renderStats();
@@ -1322,7 +1350,7 @@
     els.skip.addEventListener('click', () => submit({ skip: true }));
     els.timed.addEventListener('click', () => {
       if (timed && !timed.paused) {
-        finishTimed();
+        finishTimed({ recordBest: false });
         return;
       }
       if (finished) {
@@ -1355,6 +1383,7 @@
       streak: session.streak,
       index: session.index,
       locked: session.locked,
+      noteStartedAt: session.noteStartedAt,
       timed: Boolean(timed && !timed.paused),
       prompt: session.prompt
     });
