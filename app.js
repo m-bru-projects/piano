@@ -18,6 +18,7 @@
     renderNote: document.getElementById('renderNote'),
     scorePanel: document.getElementById('scorePanel'),
     fallingPanel: document.getElementById('fallingPanel'),
+    readingPanel: document.getElementById('readingPanel'),
     canvas: document.getElementById('fallingCanvas'),
     tabs: [...document.querySelectorAll('.view-tab')],
     playButton: document.getElementById('playButton'),
@@ -1286,6 +1287,18 @@
     return true;
   }
 
+  function playPitch(pitch, seconds = 0.6) {
+    const durationSeconds = Number(seconds);
+    if (!pitch || !(durationSeconds > 0)) return;
+    try {
+      const audio = ensureAudioContext();
+      const beats = (durationSeconds * state.tempo) / 60;
+      scheduleTone({ pitch, duration: beats, hand: 'right' }, audio.currentTime, beats);
+    } catch (error) {
+      console.warn('Could not play a practice note', error);
+    }
+  }
+
   function scheduleTone(note, when, durationBeats = note.duration) {
     if (!els.soundToggle.checked || !(durationBeats > 0.02)) return;
     const audio = ensureAudioContext();
@@ -1492,8 +1505,23 @@
       tab.setAttribute('aria-selected', String(active));
     });
     const falling = view === 'falling';
-    els.scorePanel.classList.toggle('is-hidden', falling);
+    const reading = view === 'reading';
+    els.scorePanel.classList.toggle('is-hidden', falling || reading);
     els.fallingPanel.classList.toggle('is-hidden', !falling);
+    els.readingPanel?.classList.toggle('is-hidden', !reading);
+    document.body.classList.toggle('is-reading', reading);
+    els.tabs
+      .find(tab => tab.dataset.view === view)
+      ?.scrollIntoView?.({
+        inline: 'nearest',
+        block: 'nearest'
+      });
+    if (reading) {
+      if (state.playing) pause();
+      window.NoteReading?.onShow();
+      return;
+    }
+    window.NoteReading?.onHide();
     if (falling) {
       requestFallingRedraw();
       requestAnimationFrame(() => requestFallingRedraw());
@@ -1675,6 +1703,7 @@
     keyboardRange,
     beatForSheetClick,
     playFromBeat,
+    playPitch,
     getState: () => ({
       piece: state.piece,
       view: state.view,
