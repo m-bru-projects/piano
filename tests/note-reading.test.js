@@ -347,12 +347,107 @@ describe('note reading UI', () => {
     key('KeyZ');
     document.getElementById('readingTimed').click();
     expect(document.getElementById('readingFeedback').textContent).toMatch(/^Time/);
-    expect(document.getElementById('readingBest').textContent).toMatch(/Best 60s/);
+    expect(document.getElementById('readingBest').textContent).not.toMatch(/Best 60s/);
+    expect(JSON.parse(localStorage.getItem('piano-note-reading-progress')).bestTimed).toBe(0);
 
     document.querySelector('[data-view="score"]').click();
     expect(document.body.classList.contains('is-reading')).toBe(false);
     expect(document.getElementById('scorePanel').classList.contains('is-hidden')).toBe(false);
     expect(document.getElementById('readingPanel').classList.contains('is-hidden')).toBe(true);
     expect(window.PianoApp.getState().view).toBe('score');
+  });
+
+  function progress() {
+    return JSON.parse(localStorage.getItem('piano-note-reading-progress'));
+  }
+
+  async function flushMicrotasks() {
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+  }
+
+  it('grades a prompt only after its engraving has rendered', async () => {
+    let resolveLoad = () => {};
+    window.opensheetmusicdisplay = {
+      OpenSheetMusicDisplay: class {
+        load() {
+          return new Promise(resolve => {
+            resolveLoad = resolve;
+          });
+        }
+        render() {}
+        EngravingRules = {};
+      }
+    };
+    const clock = { t: 5000 };
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => clock.t);
+    const realFrame = window.requestAnimationFrame;
+    const queued = [];
+    window.requestAnimationFrame = callback => {
+      queued.push(callback);
+      return queued.length;
+    };
+    try {
+      openReading();
+      document.getElementById('readingReset').click();
+      window.NoteReading.forcePrompt([60]);
+      while (queued.length) queued.shift()();
+      expect(window.NoteReading.getControllerState().locked).toBe(true);
+      expect(window.NoteReading.getControllerState().noteStartedAt).toBe(0);
+      key('KeyZ');
+      document.querySelector('#readingKeyboard [data-midi="60"]').click();
+      expect(document.getElementById('readingFeedback').textContent).toBe('Play this note');
+      expect(document.getElementById('readingPoints').textContent).toBe('0');
+
+      clock.t = 8000;
+      resolveLoad();
+      await flushMicrotasks();
+      expect(window.NoteReading.getControllerState().locked).toBe(false);
+      expect(window.NoteReading.getControllerState().noteStartedAt).toBe(8000);
+
+      clock.t = 8300;
+      key('KeyZ');
+      expect(document.getElementById('readingFeedback').textContent).toBe('Correct');
+      expect(document.getElementById('readingReaction').textContent).toBe('300 ms');
+    } finally {
+      window.requestAnimationFrame = realFrame;
+      delete window.opensheetmusicdisplay;
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('records Best 60s only when the drill expires on its own', async () => {
+    openReading();
+    const clock = { t: 20_000 };
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => clock.t);
+    try {
+      document.getElementById('readingTimed').click();
+      window.NoteReading.forcePrompt([60]);
+      key('KeyZ');
+      clock.t += 1200;
+      await vi.advanceTimersByTimeAsync(1200);
+      expect(window.NoteReading.getControllerState().locked).toBe(false);
+      clock.t += 60_000;
+      await vi.advanceTimersByTimeAsync(200);
+      expect(progress().bestTimed).toBe(10);
+      expect(document.getElementById('readingBest').textContent).toContain('Best 60s 10');
+      expect(document.getElementById('readingFeedback').textContent).toMatch(/^Time · 10 points/);
+
+      document.getElementById('readingTimed').click();
+      document.getElementById('readingTimed').click();
+      window.NoteReading.forcePrompt([60]);
+      key('KeyZ');
+      clock.t += 1200;
+      await vi.advanceTimersByTimeAsync(1200);
+      window.NoteReading.forcePrompt([62]);
+      key('KeyX');
+      expect(window.NoteReading.getControllerState().points).toBe(22);
+      document.getElementById('readingTimed').click();
+      expect(document.getElementById('readingFeedback').textContent).toMatch(/^Time · 22 points/);
+      expect(progress().bestTimed).toBe(10);
+      expect(document.getElementById('readingBest').textContent).toContain('Best 60s 10');
+      expect(document.getElementById('readingBest').textContent).not.toContain('Best 60s 22');
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });
